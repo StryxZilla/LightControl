@@ -140,8 +140,22 @@
 
 ---
 
-## Hardware Validation Readiness
-- **Controller Identified**: BanlanX SP530E at `192.168.86.34:8587` (Wi-Fi TCP) and BLE GATT Service `0xFFE0` / Characteristic `0xFFE1`.
-- **Verified Offline**: All 51 unit tests and dry-run sequences pass with 100% protocol fixture fidelity.
-- **Pending Live Validation**: Awaiting user approval to transmit the controlled live verification sequence to physical hardware via:
-  `node --experimental-strip-types apps/test-harness/cli.ts --transport=wifi --host=192.168.86.34 --port=8587 --live`
+## Hardware Validation Execution & Confirmed Functions
+- **Controller Validated**: BanlanX SP530E at `192.168.86.34:8587` (Wi-Fi TCP).
+- **Execution Date**: 2026-10-27 21:47:42 UTC
+- **User Approval Gate**: Granted interactively for controlled live transmission sequence.
+- **Hardware Status**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE**:
+  - Live TCP socket connect (42 ms latency): **PASS**
+  - Read-only telemetry query & decode: **PASS**
+  - Power ON write (`03 01 01`): **PASS**
+  - Brightness cap enforcement (20% safe cap `03 02 33`): **PASS**
+  - Solid RGB Red, Green, Blue writes (`03 04 ...`): **PASS**
+  - Dynamic Rainbow Effect Mode 1 (`03 06 01`): **PASS**
+  - Automatic reconnection and fault backoff: **PASS**
+  - Graceful socket teardown: **PASS**
+
+---
+
+## Next Recommended Step
+1. Commit the hardware validation report and updated progress log to Git.
+2. Proceed to Phase 2 desktop user interface construction in `packages/ui/` (Electron + React + Vite + Tailwind CSS), integrating the live SP530E hardware driver and WLED adapter into the interactive desktop UI.
