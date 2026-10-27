@@ -35,6 +35,8 @@ export interface ElectronApi {
   rescanDevices?(): Promise<SerializedDevice[]>;
   stopDiscovery(): Promise<void>;
   addWledDevice?(host: string, port?: number, name?: string): Promise<SerializedDevice>;
+  testConnection?(host: string, port?: number): Promise<{ success: boolean; latencyMs?: number; message: string; firmware?: string; pixels?: number }>;
+  updateDeviceConfig?(deviceId: string, config: { name?: string; host?: string; port?: number; icType?: string; pixelCount?: number; channelOrder?: string }): Promise<SerializedDevice>;
   connectDevice(deviceId: string): Promise<boolean>;
   disconnectDevice(deviceId: string): Promise<void>;
   setPower(deviceId: string, on: boolean): Promise<boolean>;

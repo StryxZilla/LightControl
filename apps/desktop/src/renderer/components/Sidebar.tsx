@@ -41,7 +41,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'HARDWARE & SYSTEM',
     items: [
-      { id: 'device-settings', label: 'Strip Configuration', icon: 'sliders' },
+      { id: 'device-settings', label: 'Device & Strip Config', icon: 'sliders' },
       { id: 'diagnostics', label: 'Diagnostics & Logs', icon: 'diagnostics' },
       { id: 'settings', label: 'App Settings', icon: 'settings' },
     ],

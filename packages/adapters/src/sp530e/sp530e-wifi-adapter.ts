@@ -133,10 +133,16 @@ export class SP530EWiFiDevice implements ILedDevice {
     }
 
     return new Promise((resolve, reject) => {
+      let isResolved = false;
       const socket = new net.Socket();
-      socket.setTimeout(4000);
+      socket.setTimeout(5000);
 
       socket.connect(this.port, this.host, async () => {
+        // Clear idle timeout so the persistent session is not killed by Node.js
+        socket.setTimeout(0);
+        socket.setKeepAlive(true, 5000);
+        socket.setNoDelay(true);
+
         this.socket = socket;
         this.connectionInfo.state = 'connected';
         this.connectionInfo.connected = true;
@@ -149,7 +155,10 @@ export class SP530EWiFiDevice implements ILedDevice {
         } catch {
           // Keep connected even if initial query response was delayed
         }
-        resolve(true);
+        if (!isResolved) {
+          isResolved = true;
+          resolve(true);
+        }
       });
 
       socket.on('data', (chunk: Buffer) => {
@@ -181,7 +190,10 @@ export class SP530EWiFiDevice implements ILedDevice {
         this.socket = null;
         this.diagnostics?.logConnectionResult(this.id, false, 'wifi-tcp', err.message);
         this.emitError('ERR_WIFI_CONNECT', err.message);
-        reject(err);
+        if (!isResolved) {
+          isResolved = true;
+          reject(err);
+        }
       });
 
       socket.on('close', () => {
@@ -192,14 +204,19 @@ export class SP530EWiFiDevice implements ILedDevice {
       });
 
       socket.on('timeout', () => {
-        socket.destroy();
-        this.connectionInfo.state = 'unavailable';
-        this.connectionInfo.connected = false;
-        this.socket = null;
-        const err = new Error(`Connection to ${this.host}:${this.port} timed out`);
-        this.diagnostics?.logConnectionResult(this.id, false, 'wifi-tcp', err.message);
-        this.emitError('ERR_WIFI_TIMEOUT', err.message);
-        reject(err);
+        if (!this.connectionInfo.connected) {
+          socket.destroy();
+          this.connectionInfo.state = 'unavailable';
+          this.connectionInfo.connected = false;
+          this.socket = null;
+          const err = new Error(`Connection to ${this.host}:${this.port} timed out`);
+          this.diagnostics?.logConnectionResult(this.id, false, 'wifi-tcp', err.message);
+          this.emitError('ERR_WIFI_TIMEOUT', err.message);
+          if (!isResolved) {
+            isResolved = true;
+            reject(err);
+          }
+        }
       });
     });
   }
@@ -227,7 +244,7 @@ export class SP530EWiFiDevice implements ILedDevice {
       return true;
     }
 
-    if (!this.socket || this.connectionInfo.state !== 'connected') {
+    if (!this.socket || this.connectionInfo.state !== 'connected' || this.socket.destroyed) {
       await this.connect();
     }
 

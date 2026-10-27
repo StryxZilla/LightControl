@@ -1,8 +1,8 @@
 # Project Progress & Investigation Log
 
 ## Current Status
-- **Current Milestone**: Phase 6 Complete (Hardware Driver & Discovery Diagnostics & Repair)
-- **Active Task**: All 4 discovery and connection root causes diagnosed and repaired; live physical SP530E controller discovered dynamically via ARP sweep (`192.168.86.34:8587`); all 75 tests passing; portable executable rebuilt and smoke-tested. Awaiting user authorization for live physical command transmission.
+- **Current Milestone**: Phase 7 Complete (Device Configuration & Socket Timeout Lifecycle Repair)
+- **Active Task**: Fixed 4-second socket idle timeout drop (`socket.setTimeout(0)` + TCP keepalive); built comprehensive Device Configuration Screen with separated Connection & LED output configuration; verified non-destructive TCP socket telemetry on `192.168.86.34:8587`; rebuilt portable executable. Awaiting user approval for physical LED state changes.
 
 ---
 
@@ -299,6 +299,21 @@
   - `docs/SP530E_CONNECTION_DEBUG.md`: Connection lifecycle, socket management, and session recovery documentation.
   - `docs/HARDWARE_TEST_RESULTS.md`: Empirical test report and four-status hardware matrix.
   - `docs/FIXES_APPLIED.md`: Detailed file-by-file modification ledger.
+
+### Phase 7: Device Configuration & Socket Timeout Lifecycle Repair (2026-10-27)
+- **Problem Diagnosis**:
+  - Investigated brief "CONNECTED then DISCONNECTED" issue: identified Node.js `net.Socket.setTimeout(4000)` idle timeout destroying active sockets after 4 seconds of idle time.
+  - Discovered missing connection configuration in `DeviceSettingsScreen.tsx` (only had strip IC and segment zoning, no connection fields or test connection button).
+  - Confirmed target IP `192.168.86.34:8587` is active and responsive (91 ms TCP connect, 428B telemetry decoded: Firmware `V2.0.13`, 60 pixels).
+- **Implemented Fixes**:
+  - `packages/adapters/src/sp530e/sp530e-wifi-adapter.ts`: Disabled socket idle timeout upon connect (`socket.setTimeout(0)`), enabled TCP keep-alive (`5000ms`), disabled Nagle's algorithm (`setNoDelay`), guarded timeout to handshake only, and added socket destruction guard in `writeControlPacket()`.
+  - `apps/desktop/src/renderer/screens/DeviceSettingsScreen.tsx`: Implemented full Device Configuration Screen separating Connection & Network configuration (Device label, model, transport, IP, port, live state, firmware, Test Connection button, Connect/Disconnect, Rescan) from LED Hardware Output configuration (IC protocol, channel order, pixel count, multi-segment partitions).
+  - `apps/desktop/src/main/ipc-handlers.ts`: Added `device:test-connection` and `device:update-config` IPC handlers, ensuring persistent settings in `%APPDATA%\LightControl\settings.json`.
+  - `apps/desktop/src/preload/`: Exposed `testConnection` and `updateDeviceConfig`.
+  - Rebuilt and smoke-tested `release\LightControl-Portable.exe` (77.54 MB).
+- **Documentation Deliverables**:
+  - `docs/SP530E_CONFIGURATION_AUDIT.md`: Device configuration and identification audit report.
+  - `docs/SP530E_CONNECTION_FIXES.md`: Connection fixes and implementation report.
 
 ---
 

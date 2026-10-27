@@ -18,6 +18,8 @@ interface DeviceContextType {
   rescanDevices: () => Promise<void>;
   stopDiscovery: () => Promise<void>;
   addWledDevice: (host: string, port?: number, name?: string) => Promise<void>;
+  testConnection: (host: string, port?: number) => Promise<{ success: boolean; latencyMs?: number; message: string; firmware?: string; pixels?: number }>;
+  updateDeviceConfig: (deviceId: string, config: { name?: string; host?: string; port?: number; icType?: string; pixelCount?: number; channelOrder?: string }) => Promise<void>;
   connectDevice: (deviceId: string) => Promise<boolean>;
   disconnectDevice: (deviceId: string) => Promise<void>;
   setPower: (on: boolean) => Promise<boolean>;
@@ -373,6 +375,37 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setSelectedDeviceId(id);
   }, []);
 
+  const testConnection = useCallback(async (host: string, port = 8587) => {
+    if (window.api && window.api.testConnection) {
+      return await window.api.testConnection(host, port);
+    }
+    return { success: true, latencyMs: 45, message: `Simulated connection to ${host}:${port} OK` };
+  }, []);
+
+  const updateDeviceConfig = useCallback(async (deviceId: string, config: { name?: string; host?: string; port?: number; icType?: string; pixelCount?: number; channelOrder?: string }) => {
+    if (window.api && window.api.updateDeviceConfig) {
+      await window.api.updateDeviceConfig(deviceId, config);
+      const devs = await window.api.getDevices();
+      setDevices(devs);
+      return;
+    }
+    setDevices((prev) =>
+      prev.map((d) =>
+        d.id === deviceId
+          ? {
+              ...d,
+              name: config.name || d.name,
+              capabilities: {
+                ...d.capabilities,
+                maxTotalPixels: config.pixelCount || d.capabilities.maxTotalPixels,
+                maxPixelCount: config.pixelCount || d.capabilities.maxPixelCount,
+              },
+            }
+          : d
+      )
+    );
+  }, []);
+
   const connectDevice = useCallback(async (deviceId: string): Promise<boolean> => {
     if (window.api) {
       const ok = await window.api.connectDevice(deviceId);
@@ -561,6 +594,8 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         rescanDevices,
         stopDiscovery,
         addWledDevice,
+        testConnection,
+        updateDeviceConfig,
         connectDevice,
         disconnectDevice,
         setPower,
