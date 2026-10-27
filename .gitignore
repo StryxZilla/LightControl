@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build Artifacts & Binaries
+dist/
+build/
+out/
+bin/
+obj/
+release/*
+!release/.gitkeep
+*.exe
+*.dll
+*.node
+*.dylib
+*.so
+*.msi
+*.msix
+
+# Reverse Engineering Artifacts & Target Assets (Zero Contamination)
+research/apk/*
+!research/apk/.gitkeep
+research/decompiled/*
+!research/decompiled/.gitkeep
+research/screenshots/*
+!research/screenshots/.gitkeep
+*.apk
+*.apks
+*.xapk
+*.dex
+*.jar
+*.class
+
+# Network Captures & Diagnostics
+*.pcap
+*.pcapng
+*.cap
+*.etl
+research/network/*
+!research/network/.gitkeep
+research/bluetooth/*
+!research/bluetooth/.gitkeep
+
+# Logs, Traces & Dumps
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logcat*.txt
+*.dmp
+*.crash
+
+# Secrets, Environment & Sensitive Data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.pfx
+
+# IDE & OS Metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Antigravity agent scratch & cache
+.gemini/
+scratch/
