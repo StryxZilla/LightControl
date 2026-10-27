@@ -190,7 +190,49 @@
 
 ---
 
+### Prompt 11: WLED Device Support & QuinLED dig2go Compatibility (2026-10-27)
+- **Official References Analyzed**:
+  - WLED JSON API documentation (`kno.wled.ge/interfaces/json-api/`).
+  - WLED WebSocket specification (`kno.wled.ge/interfaces/websocket/`).
+  - QuinLED dig2go hardware architecture (ESP32 dual-core, Sound-Reactive firmware, USB-C 5V @ 3A, MOSFET relay hard-off, ICS-43434 digital MEMS microphone).
+- **Core WLED Architecture & Protocol Implementation** (`packages/adapters/src/wled/` & `packages/adapters/wled/`):
+  - `WledCodec`:
+    - Strict bidirectional translation between Universal HAL models (`LedState`, `DeviceCapabilities`, `Preset`) and official WLED JSON schemas (`WledJsonState`, `WledJsonInfo`, `WledJsonSegment`, `WledJsonPlaylist`).
+    - Dynamic effect and palette catalog mapping (zero hardcoded effect IDs; dynamically queries 180+ effects and 70+ palettes).
+    - Presets and Playlists encoding/decoding (`ps`, `psave`, `pdel`, `playlist: { ps, dur, transition, repeat, end }`).
+    - Automatic hardware and capability detection (`isDig2Go(info)` and `isSoundReactive(info)`).
+  - `WledDevice`:
+    - Universal `ILedDevice` compliance with dual-transport reliability: synchronous HTTP POST (`/json/state`) for guaranteed command execution and bidirectional WebSocket (`ws://<ip>:<port>/ws`) for real-time state synchronization.
+    - Application-level heartbeat ping (`p`/`pong`) to monitor socket health.
+    - Automatic exponential reconnection backoff (1s up to 16s, capped at 6 attempts) with `.unref()` timers to avoid blocking process termination.
+    - Full support for power, 20% safe brightness scaling, solid RGB/RGBW colors, dynamic effects, speed, intensity, palettes, multi-segment zoning, and flash preset persistence.
+  - `WledAdapter`:
+    - Manual IP/hostname registration (`addDevice(host, port, name)`).
+    - Active network discovery probe scanning candidate IP addresses via lightweight HTTP `/json/info` requests with 800ms timeouts.
+- **Local Mock Server & Simulator Verification** (`tests/wled/wled-mock-server.ts`):
+  - Zero-dependency Node.js HTTP and RFC 6455 WebSocket mock server simulating a QuinLED dig2go controller with 300 pixels, sound-reactive audio capabilities, 82 effects, and 45 palettes.
+  - Handles `/json`, `/json/state`, `/json/info`, `/json/eff`, `/json/pal`, `/presets.json`, and `/ws` upgrade with real-time state broadcast pushes.
+- **UI Integration**:
+  - Updated `AppIpcManager`, `ElectronApi`, Preload bridge, and React `DeviceConnectionScreen` to provide a dedicated **WLED / dig2go (HTTP 80)** manual connection panel alongside the existing SP530E socket connector.
+- **Test Suite Results**:
+  - Added `tests/wled/wled-codec.test.ts` (7 tests).
+  - Added `tests/wled/wled-adapter.test.ts` (6 tests).
+  - Added `tests/wled/wled-websocket.test.ts` (3 tests).
+  - **Full test suite expanded to 71 out of 71 tests passing (`npm test`) in 780 ms** with zero errors or warnings.
+- **Documentation Deliverables**:
+  - `docs/WLED_IMPLEMENTATION.md`: Full architectural reference, protocol mapping, and QuinLED dig2go hardware profile.
+  - `docs/DIG2GO_HARDWARE_TEST_PLAN.md`: 10-stage hardware validation test plan for physical dig2go testing upon arrival.
+
+---
+
+## Status of Hardware Verification
+- **BanlanX SP530E**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE** (tested via live Wi-Fi TCP port 8587 on `192.168.86.34:8587`).
+- **QuinLED dig2go (WLED)**: **SIMULATOR-TESTED & VERIFIED** (all API calls, presets, segments, and WebSocket sync pass against local mock server; physical hardware validation pending device delivery).
+
+---
+
 ## Next Recommended Step
-1. Review the generated screenshots and run `npm run desktop:start` to interact with the live desktop application.
-2. Proceed to testing multi-device synchronization and preset orchestration between SP530E and WLED controllers.
+1. Review `docs/WLED_IMPLEMENTATION.md` and `docs/DIG2GO_HARDWARE_TEST_PLAN.md`.
+2. When the physical QuinLED dig2go controller arrives, follow `docs/DIG2GO_HARDWARE_TEST_PLAN.md` to conduct live physical hardware verification.
+
 

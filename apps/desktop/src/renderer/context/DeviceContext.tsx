@@ -16,6 +16,7 @@ interface DeviceContextType {
   statusMessage: string | null;
   startDiscovery: () => Promise<void>;
   stopDiscovery: () => Promise<void>;
+  addWledDevice: (host: string, port?: number, name?: string) => Promise<void>;
   connectDevice: (deviceId: string) => Promise<boolean>;
   disconnectDevice: (deviceId: string) => Promise<void>;
   setPower: (on: boolean) => Promise<boolean>;
@@ -276,6 +277,59 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  const addWledDevice = useCallback(async (host: string, port = 80, name?: string) => {
+    if (window.api && window.api.addWledDevice) {
+      const dev = await window.api.addWledDevice(host, port, name);
+      const all = await window.api.getDevices();
+      setDevices(all);
+      setSelectedDeviceId(dev.id);
+      return;
+    }
+    const id = `wled-${host.replace(/\./g, '-')}`;
+    const newDev: SerializedDevice = {
+      id,
+      name: name || `QuinLED dig2go (${host})`,
+      family: 'wled',
+      connectionInfo: {
+        transport: 'wifi-http',
+        address: `http://${host}:${port}`,
+        name: name || `QuinLED dig2go (${host})`,
+        state: 'disconnected',
+      },
+      capabilities: {
+        family: 'wled',
+        supportsPower: true,
+        supportsBrightness: true,
+        brightnessRange: { min: 0, max: 100, safetyLimit: 100 },
+        colorModes: ['rgb', 'rgbw'],
+        supportsWhiteChannel: true,
+        supportsColorTemperature: true,
+        supportsSegments: true,
+        maxSegments: 16,
+        maxTotalPixels: 300,
+        supportsBuiltInEffects: true,
+        effectsList: [
+          { id: 0, name: 'Solid' },
+          { id: 1, name: 'Blink' },
+          { id: 9, name: 'Rainbow' },
+        ],
+        supportsSpeedControl: true,
+        supportsMusicReactive: true,
+        supportsTelemetry: true,
+      },
+      state: {
+        power: true,
+        brightness: 20,
+        color: { r: 255, g: 160, b: 50, hex: '#FFA032' },
+        mode: 'solid',
+        effectId: 0,
+        effectSpeed: 50,
+      },
+    };
+    setDevices((prev) => (prev.some((d) => d.id === id) ? prev : [...prev, newDev]));
+    setSelectedDeviceId(id);
+  }, []);
+
   const connectDevice = useCallback(async (deviceId: string): Promise<boolean> => {
     if (window.api) {
       const ok = await window.api.connectDevice(deviceId);
@@ -462,6 +516,7 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         statusMessage,
         startDiscovery,
         stopDiscovery,
+        addWledDevice,
         connectDevice,
         disconnectDevice,
         setPower,

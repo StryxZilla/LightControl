@@ -13,6 +13,8 @@ const api: ElectronApi = {
   getDevices: () => ipcRenderer.invoke('devices:get-all'),
   startDiscovery: () => ipcRenderer.invoke('discovery:start'),
   stopDiscovery: () => ipcRenderer.invoke('discovery:stop'),
+  addWledDevice: (host: string, port = 80, name?: string) =>
+    ipcRenderer.invoke('device:add-wled', host, port, name),
   connectDevice: (deviceId: string) => ipcRenderer.invoke('device:connect', deviceId),
   disconnectDevice: (deviceId: string) => ipcRenderer.invoke('device:disconnect', deviceId),
   setPower: (deviceId: string, on: boolean) => ipcRenderer.invoke('device:set-power', deviceId, on),

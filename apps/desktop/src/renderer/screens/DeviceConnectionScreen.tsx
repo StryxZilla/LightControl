@@ -11,12 +11,37 @@ export const DeviceConnectionScreen: React.FC = () => {
     disconnectDevice,
     startDiscovery,
     stopDiscovery,
+    addWledDevice,
     isScanning,
   } = useDevice();
 
+  const [targetType, setTargetType] = useState<'sp530e' | 'wled'>('sp530e');
   const [manualIp, setManualIp] = useState('192.168.86.34');
   const [manualPort, setManualPort] = useState('8587');
   const [connectingId, setConnectingId] = useState<string | null>(null);
+
+  const handleTargetChange = (type: 'sp530e' | 'wled') => {
+    setTargetType(type);
+    if (type === 'wled') {
+      setManualIp('192.168.86.50');
+      setManualPort('80');
+    } else {
+      setManualIp('192.168.86.34');
+      setManualPort('8587');
+    }
+  };
+
+  const handleConnectDirect = async () => {
+    if (targetType === 'wled') {
+      const portNum = parseInt(manualPort, 10) || 80;
+      await addWledDevice(manualIp, portNum, `QuinLED dig2go (${manualIp})`);
+      const devId = `wled-${manualIp.replace(/\./g, '-')}`;
+      await handleConnect(devId);
+    } else {
+      const id = `sp530e-wifi-${manualIp.replace(/\./g, '-')}`;
+      await handleConnect(id);
+    }
+  };
 
   const handleConnect = async (id: string) => {
     setConnectingId(id);
@@ -58,21 +83,47 @@ export const DeviceConnectionScreen: React.FC = () => {
 
       {/* Manual Connection Input Card */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-6">
-        <h3 className="text-sm font-bold text-white mb-1">Direct Network Connection</h3>
-        <p className="text-xs text-gray-400 mb-4">
-          Connect directly to an SP530E controller via local TCP socket (SPNET port 8587)
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-bold text-white">Direct Network Connection</h3>
+            <p className="text-xs text-gray-400">
+              Connect directly via local TCP socket or WLED JSON/WebSocket HTTP port
+            </p>
+          </div>
+          <div className="flex items-center gap-1 bg-[#0d1117] p-1 rounded-lg border border-[#30363d]">
+            <button
+              onClick={() => handleTargetChange('sp530e')}
+              className={`px-3 py-1 text-xs rounded font-medium transition-all ${
+                targetType === 'sp530e'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              SP530E (TCP 8587)
+            </button>
+            <button
+              onClick={() => handleTargetChange('wled')}
+              className={`px-3 py-1 text-xs rounded font-medium transition-all ${
+                targetType === 'wled'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              WLED / dig2go (HTTP 80)
+            </button>
+          </div>
+        </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 mt-4">
           <div className="flex-1 min-w-[200px]">
             <label className="text-[10px] text-gray-400 font-medium uppercase mb-1 block">
-              Controller IP Address
+              {targetType === 'wled' ? 'WLED IP / Hostname' : 'SP530E IP Address'}
             </label>
             <input
               type="text"
               value={manualIp}
               onChange={(e) => setManualIp(e.target.value)}
-              placeholder="192.168.86.34"
+              placeholder={targetType === 'wled' ? '192.168.86.50' : '192.168.86.34'}
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-2 text-xs text-white font-mono focus:border-blue-500 outline-none"
             />
           </div>
@@ -84,20 +135,21 @@ export const DeviceConnectionScreen: React.FC = () => {
               type="text"
               value={manualPort}
               onChange={(e) => setManualPort(e.target.value)}
-              placeholder="8587"
+              placeholder={targetType === 'wled' ? '80' : '8587'}
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-2 text-xs text-white font-mono focus:border-blue-500 outline-none"
             />
           </div>
           <div className="self-end">
             <button
-              onClick={() => {
-                const id = `sp530e-wifi-${manualIp.replace(/\./g, '-')}`;
-                handleConnect(id);
-              }}
-              className="px-4 py-2 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-white text-xs font-semibold rounded-md transition-all flex items-center gap-2"
+              onClick={handleConnectDirect}
+              className={`px-4 py-2 border text-white text-xs font-semibold rounded-md transition-all flex items-center gap-2 ${
+                targetType === 'wled'
+                  ? 'bg-purple-900/40 hover:bg-purple-800/60 border-purple-500/50'
+                  : 'bg-[#21262d] hover:bg-[#30363d] border-[#30363d]'
+              }`}
             >
-              <Icon name="link" className="w-4 h-4 text-cyan-400" />
-              <span>Connect Socket</span>
+              <Icon name="link" className={`w-4 h-4 ${targetType === 'wled' ? 'text-purple-400' : 'text-cyan-400'}`} />
+              <span>{targetType === 'wled' ? 'Connect WLED / dig2go' : 'Connect Socket'}</span>
             </button>
           </div>
         </div>

@@ -33,6 +33,7 @@ export interface ElectronApi {
   getDevices(): Promise<SerializedDevice[]>;
   startDiscovery(): Promise<void>;
   stopDiscovery(): Promise<void>;
+  addWledDevice?(host: string, port?: number, name?: string): Promise<SerializedDevice>;
   connectDevice(deviceId: string): Promise<boolean>;
   disconnectDevice(deviceId: string): Promise<void>;
   setPower(deviceId: string, on: boolean): Promise<boolean>;

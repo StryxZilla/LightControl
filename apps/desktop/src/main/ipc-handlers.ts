@@ -83,6 +83,13 @@ export class AppIpcManager {
       await this.deviceManager.stopDiscovery();
     });
 
+    ipcMain.handle('device:add-wled', async (_, host: string, port = 80, name?: string) => {
+      this.log('INFO', `Registering manual WLED device: ${host}:${port}`);
+      const dev = this.wledAdapter.addDevice(host, port, name || `QuinLED dig2go (${host})`);
+      this.deviceManager.registerDevice(dev);
+      return this.serializeDevices([dev])[0]!;
+    });
+
     ipcMain.handle('device:connect', async (_, deviceId: string) => {
       this.log('INFO', `Connecting to device: ${deviceId}`);
       try {
