@@ -187,6 +187,35 @@ export class Sp530eBleCodec {
     if (!dissection) return null;
 
     switch (dissection.opcode) {
+      case Sp530eBleOpcode.QUERY_STATE:
+        if (dissection.payload.length >= 7) {
+          const p = dissection.payload;
+          const power = p[0] === 0x01;
+          const modeId = p[1]!;
+          const mode = modeId === 0 ? 'solid' : 'effect';
+          const speed = p[2]!;
+          const brightness = p[3]!;
+          const r = p[4]!;
+          const g = p[5]!;
+          const b = p[6]!;
+          const w = p.length >= 8 ? p[7] : undefined;
+          return {
+            power,
+            brightness: Math.round((brightness / 255) * 100),
+            mode,
+            effectId: modeId,
+            effectSpeed: Math.round((speed / 255) * 100),
+            color: {
+              r,
+              g,
+              b,
+              w,
+              hex: rgbToHex({ r, g, b }),
+            },
+          } as any;
+        }
+        break;
+
       case Sp530eBleOpcode.POWER:
         if (dissection.payload.length >= 1) {
           return { power: dissection.payload[0] === 0x01 };

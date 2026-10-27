@@ -51,3 +51,33 @@
 - **Consequences**:
   - Eliminates native compilation roadblocks on developer machines.
   - Guarantees 100% native Windows BLE reliability using Microsoft's supported WinRT APIs.
+
+---
+
+## ADR-005: Modular Architecture & Dependency Injection for Device Adapters
+- **Status**: Accepted
+- **Context**: The application must support heterogeneous device families (`sp530e`, `wled`, `mock`) with distinct network and radio transports (Bluetooth LE GATT, local Wi-Fi TCP, HTTP REST, WebSocket). Hardcoding device creation or tightly coupling transports to presentation logic introduces rigidity and breaks extensibility.
+- **Decision**:
+  - Implement a pluggable Hardware Abstraction Layer (HAL) centered on `ILedAdapter` and `ILedDevice`.
+  - Use Dependency Injection via `DeviceManager.registerAdapter(adapter)` to dynamically register adapters at boot or runtime.
+  - Decouple device discovery orchestration: `DeviceManager.startDiscovery()` triggers discovery across all registered adapters concurrently using `Promise.all`.
+  - Maintain clean separation between protocol codecs (`Sp530eBleCodec`, `SpnetCodec`, `WledCodec`) and device runtime classes (`SP530EBleDevice`, `SP530EWiFiDevice`, `WledDevice`, `MockLedDevice`).
+- **Consequences**:
+  - New controllers (e.g., Govee, Zigbee/ZHA, ArtNet/DMX) can be plugged in by implementing `ILedAdapter` without modifying core logic.
+  - Full testability via `MockAdapter` without requiring real hardware radios.
+  - Decouples UI presentation from hardware transport nuances.
+
+---
+
+## ADR-006: Centralized Command Rate Limiting & Coalescing Engine
+- **Context**: High-frequency user interactions (rapidly dragging a brightness slider or color picker wheel) generate dozens of state mutation events per second. Hardware controllers like the SP530E (running microcontrollers over BLE GATT or raw TCP sockets) suffer from small receive buffers and cannot process unthrottled bursts, resulting in dropped packets, desynchronized states, or connection drops.
+- **Status**: Accepted
+- **Decision**:
+  - Implement a centralized `DeviceRateLimiter` with a default 50ms window (maximum 20 Hz command rate).
+  - Rapid sequential mutations within the cooldown interval are coalesced into a trailing execution.
+  - Intermediate values are safely discarded while the final user selection is guaranteed to be transmitted to the hardware.
+  - All pending promises from coalesced callers resolve with the final execution result, preventing unhandled promises or memory leaks.
+  - Independent per-device execution queues prevent throttling on one controller from impacting another.
+- **Consequences**:
+  - Complete elimination of hardware packet buffer overruns and radio congestion.
+  - Fluid, latency-free slider and color picker experience in the UI with guaranteed eventual consistency on physical LEDs.

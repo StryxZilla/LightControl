@@ -81,8 +81,41 @@
 - Produced executive audit report: `docs/PHASE1_COMPLETION_REPORT.md`.
 - Formally declared readiness decision: **READY FOR PHASE 2**.
 
+### Prompt 8: Modular TypeScript Device Architecture (2026-10-27)
+- Upgraded core domain interfaces and capability schemas in `packages/core/src/types.ts`:
+  - Discriminated `DeviceFamily` (`'sp530e' | 'wled' | 'mock'`) and `TransportType` (`'ble' | 'wifi-tcp' | 'wifi-http' | 'websocket' | 'mock'`).
+  - Comprehensive `DeviceCapabilities` with hardware safety brightness clamping (`safetyLimit: 20%`), color modes, white channel, CCT, segment zoning, and built-in effect catalogues.
+  - Event schemas for reactive updates: `DeviceStateChangeEvent` and `DeviceErrorEvent`.
+- Implemented central state management in `packages/core/src/state-manager.ts`:
+  - `DeviceStateManager` provides reactive state caching, pub/sub change subscriptions, optimistic updates, and automatic rollback on command rejection.
+- Implemented orchestration and rate limiting in `packages/core/src/device-manager.ts`:
+  - `DeviceManager` Dependency Injection container supporting concurrent adapter discovery and timeout-guarded connections.
+  - `DeviceRateLimiter` enforces 50ms (20 Hz) command coalescing to prevent hardware microcontroller buffer overruns during rapid slider or color wheel movements.
+- Implemented scenes and presets in `packages/core/src/presets.ts`:
+  - `PresetManager` with factory presets (*Warm White 20% Safe*, *Daylight Cool White 20%*, *Cyberpunk Cyan*, *Rainbow Wave*), JSON export/import, and device application.
+- Implemented diagnostics and telemetry in `packages/core/src/diagnostics.ts`:
+  - `DiagnosticsService` tracking packet counters, byte totals, round-trip latency statistics, and error logs.
+- Implemented pluggable hardware adapters in `packages/adapters/`:
+  - `MockAdapter` & `MockLedDevice`: Full simulation environment for offline development and testing.
+  - `WledAdapter` & `WledDevice`: High-speed JSON API integration (`/json/state`, `/json/info`) supporting QuinLED dig2go and standard WLED controllers.
+  - `SP530EBleAdapter` & `SP530EBleDevice`: Bluetooth Low Energy GATT transport with dry-run frame inspection and notification ingestion.
+  - `SP530EWiFiAdapter` & `SP530EWiFiDevice`: Direct TCP socket control (`SPNET` on port 8587) with live hardware telemetry queries and multi-segment control.
+- Authored comprehensive architectural specifications:
+  - `docs/ARCHITECTURE.md`: Monorepo structure, HAL design, data flow, sequence diagrams, and adapter lifecycles.
+  - `docs/DEVICE_INTERFACE.md`: Detailed API reference for `ILedDevice` and `ILedAdapter` methods and events.
+  - `docs/CAPABILITY_MODEL.md`: Capability matrix, schema, and UI dynamic adaptation principles.
+  - `docs/DECISIONS.md`: Appended ADR-005 (Modular Architecture & Dependency Injection) and ADR-006 (Central Rate Limiting & Coalescing Engine).
+- Authored extensive unit tests across all layers:
+  - `tests/core/device-manager.test.ts`
+  - `tests/core/rate-limiter.test.ts`
+  - `tests/core/state-manager.test.ts`
+  - `tests/core/presets.test.ts`
+  - `tests/adapters/wled-codec.test.ts`
+  - `tests/adapters/sp530e-ble-adapter.test.ts`
+  - Ran full test suite: **42 out of 42 tests passing in 208 ms (`npm test`)** with zero failures.
+
 ---
 
 ## Next Recommended Step
-1. Commit Phase 1 Completion Report to Git repository.
-2. Begin Phase 2: Scaffold the desktop user interface application in `packages/ui/` using React and Tailwind CSS, binding it to the verified `@led-controller/adapters` (`SP530EWiFiAdapter` and `MockAdapter`).
+1. Commit the Modular TypeScript Device Architecture and test suite to Git.
+2. Proceed to Desktop UI scaffolding in `packages/ui/` (Electron + React + Tailwind CSS), binding the presentation layer to the `DeviceManager`, `DeviceStateManager`, and pluggable adapters.

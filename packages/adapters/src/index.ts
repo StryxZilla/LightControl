@@ -1,3 +1,3 @@
-export * from './mock/mock-adapter.ts';
-export * from './sp530e/spnet-codec.ts';
-export * from './sp530e/sp530e-wifi-adapter.ts';
+export * from './mock/index.ts';
+export * from './sp530e/index.ts';
+export * from './wled/index.ts';
