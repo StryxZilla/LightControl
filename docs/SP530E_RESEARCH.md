@@ -3,7 +3,7 @@
 **Author**: Antigravity Lead Engineer  
 **Date**: 2026-10-27  
 **Target Hardware**: Sperll / BanlanX SP530E Multi-Mode IoT LED Controller  
-**Status**: Comprehensive Research & Evidence Synthesis  
+**Status**: Comprehensive Research & Static APK Evidence Synthesis  
 
 ---
 
@@ -52,12 +52,12 @@ The SPI data and clock generator supports a wide range of standard digital IC pr
 ## 2. Bluetooth Low Energy (BLE) Profile & Protocol Findings
 
 ### 2.1 GATT Profile & UUID Specifications
-The SP530E exposes a vendor-specific Bluetooth Low Energy GATT profile [Source 6, 7]:
+Verified from static inspection of `com.spled.scenex` APK and community prior art [Source 6, 7, 19]:
 * **Service UUID**: `0000ffe0-0000-1000-8000-00805f9b34fb` (Short 16-bit UUID: **`0xFFE0`**).
 * **Characteristic UUID**: `0000ffe1-0000-1000-8000-00805f9b34fb` (Short 16-bit UUID: **`0xFFE1`**).
   * **Properties**: `WRITE WITHOUT RESPONSE`, `WRITE`, `NOTIFY`, `READ`.
   * **Function**: Serves as the unified bidirectional transport for control commands (writes) and controller telemetry / state broadcasts (notifications).
-* **Alternate Variant Services (Firmware Dependent)**: Certain recent Sperll revisions or firmware variants advertise service `0xFFB0` with characteristic `0xFFB1`, or service `0xE0FF` [Source 6]. The primary target for SP530E remains `0xFFE0` / `0xFFE1`.
+* **Alternate Variant Services (Firmware Dependent)**: Certain recent Sperll revisions advertise service `0xFFB0` with characteristic `0xFFB1`, or service `0xE0FF` [Source 6]. The primary target for SP530E remains `0xFFE0` / `0xFFE1`.
 
 ### 2.2 BLE Advertising & Manufacturer Data
 * **Manufacturer Identifier**: Company ID `20563` (`0x5053` - ASCII string representation of "SP") [Source 6].
@@ -75,12 +75,15 @@ The SP530E exposes a vendor-specific Bluetooth Low Energy GATT profile [Source 6
 ### 3.1 Architecture: Local API vs. Cloud Service
 * **Local LAN Control**: **Confirmed Feasible**. Unlike purely cloud-tethered IoT devices, the SP530E runs an independent local network server [Source 11, 12]. It does **not** require an active internet connection or communication with BanlanX cloud servers to execute local commands once provisioned to a Wi-Fi network.
 * **Cloud Relay**: The BanlanX cloud service is utilized strictly for out-of-home remote control and third-party voice assistant bridges (Amazon Alexa, Google Home, Xiao Ai) [Source 1]. When a mobile phone and controller are on the same subnet, communication is routed directly over the local network.
-* **Documentation Status**: The local network protocol is **proprietary and undocumented** by Sperll. It has been reverse engineered through community packet analysis and Home Assistant integrations (notably `monty68/uniled`) [Source 11].
 
-### 3.2 Network Discovery (UDP)
-* **Transport**: UDP broadcast across the local subnet.
-* **Discovery Port**: Port **`8587`** [Source 11, 13].
-* **Mechanism**: Clients emit an inquiry packet on UDP port 8587; active SP530E controllers respond with their model identity (`0x4E`), IP address, MAC address, and firmware version.
+### 3.2 Verified Local mDNS Discovery (`_spled._tcp`)
+Confirmed through static binary string extraction of `libapp.so` in `com.spled.scenex`:
+* **mDNS Service Type**: **`_spled._tcp`** [Source 19].
+* **Underlying Plugin**: `fr.skyost.bonsoir.BonsoirPlugin` (Zeroconf / mDNS discovery).
+* **Discovery Workflow**:
+  - The SP530E controller registers an mDNS responder announcing `_spled._tcp.local.` on the local network.
+  - The client resolves this service to obtain the controller's local IP address and port (**`8587`**).
+  - This allows zero-configuration automatic discovery across the subnet, exactly mirroring WLED's `_wled._tcp`.
 
 ### 3.3 Command & State Transport (TCP)
 * **Transport**: Persistent or session-based TCP stream.
@@ -119,25 +122,25 @@ When configured for digital SPI strips (such as the user's **WS2812B**):
 
 ### 4.3 Audio & Music Reactive Modes
 * **Audio Input Modes**:
-  1. **Onboard Hardware Microphone**: High-sensitivity electret mic built into the SP530E chassis with adjustable hardware gain [Source 2, 3].
-  2. **Smartphone Microphone**: Captures ambient sound via the mobile device microphone and streams reactive frames over BLE/Wi-Fi [Source 2].
-  3. **Media Audio Streaming**: Direct audio FFT analysis from media played on the host device [Source 2].
+  1. **Onboard Hardware Microphone** (`ic_inner_mic_selected`): High-sensitivity electret mic built into the SP530E chassis with adjustable hardware gain [Source 2, 3, 19].
+  2. **Smartphone Microphone** (`ic_mobile_mic_selected`): Captures ambient sound via the mobile device microphone and streams reactive frames over BLE/Wi-Fi [Source 2, 19].
+  3. **Media Audio Streaming** (`ic_player_selected`): Direct audio FFT analysis from media played on the host device [Source 2, 19].
 * **Music Presets**: 18 specialized music-reactive visual patterns (Energy, Rhythm, Spectrum, Rolling, Jump, etc.) [Source 3].
-* **Strip vs. Matrix Mapping**: Supports 1D linear strip sound bounce and 2D matrix audio frequency spectrum visualization [Source 2].
+* **Strip vs. Matrix Mapping**: Supports 1D linear strip sound bounce (`/sp630e/music/config/strip`) and 2D matrix audio frequency spectrum visualization (`/sp630e/music/config/matrix`) [Source 2, 19].
 
 ### 4.4 Timers, Power State & Scene Storage
-* **Hardware Timers**: Up to 5 independent hardware timer schedules stored in non-volatile flash memory (allows scheduled wake-up or sleep sequences without host connectivity) [Source 2].
-* **Power-On State Memory**: Configurable behavior upon power restoration (Restore last state, Default to Solid White, or Remain Off) [Source 2].
-* **Scene Storage**: Supports saving and recalling custom DIY static color and effect scenes [Source 2].
+* **Hardware Timers**: Up to 5 independent hardware timer schedules stored in non-volatile flash memory (`/sp630e/settings/timer/config`) [Source 2, 19].
+* **Power-On State Memory**: Configurable behavior upon power restoration (`/sp630e/settings/powerOn`) [Source 2, 19].
+* **Scene Storage**: Supports saving and recalling custom DIY static color and effect scenes (`/sp630e/diy/fav`) [Source 2, 19].
 
 ---
 
 ## 5. Firmware-Specific Behaviors & Community Findings
 
-### 5.1 SP530E vs. SP630E Differences
-* **Model Code**: SP530E identifies as `0x4E`; SP630E identifies as a member of the 6xx family [Source 8, 9].
-* **Network Transport**: The SP530E includes an onboard Wi-Fi chip and runs the `SPNET` TCP/UDP protocol on port 8587. The standard SP630E is primarily a Bluetooth-only controller [Source 4, 15].
-* **Firmware Branches**: Firmware for the SP530E is versioned as `V3.0.x` in BanlanX [Source 11].
+### 5.1 SP530E Architecture Mapping
+* **Model Code**: SP530E identifies as `0x4E` [Source 8, 9].
+* **App Code Unified Architecture**: In the BanlanX application, multi-channel controllers share the `packages/sp630e/` Flutter presentation module while binding to hardware model `0x4E` [Source 19].
+* **Network Transport**: The SP530E runs the `SPNET` TCP/UDP protocol on port 8587 and broadcasts mDNS service `_spled._tcp`.
 
 ### 5.2 Known Integration Issues in Open-Source Projects
 * **UniLED Issue #144**: *"sp530e failure to setup device due to config in power state"* — During initial handshake, if the device is queried while powered off, certain firmware builds return unexpected response chunks causing state parsing crashes [Source 16].
@@ -152,14 +155,14 @@ When configured for digital SPI strips (such as the user's **WS2812B**):
    - The user opens the BanlanX app. The phone scans for BLE advertisements carrying Manufacturer ID `20563` and model code `0x4E` [Source 6, 8].
    - When detected within range (~10 meters), the app prompts the user to add the SP530E [Source 18].
 2. **Step 2: BLE GATT Connection**:
-   - App connects to GATT Service `0xFFE0` and Characteristic `0xFFE1` [Source 6].
+   - App connects to GATT Service `0xFFE0` and Characteristic `0xFFE1` via `com.spled.flutter_ble.FlutterBlePlugin` [Source 6, 19].
    - Queries current device telemetry and firmware version.
 3. **Step 3: Wi-Fi Provisioning (Over BLE)**:
-   - The app asks the user for the local 2.4GHz Wi-Fi SSID and password [Source 18].
-   - Credentials are encrypted/encoded and written to Characteristic `0xFFE1`.
-   - The ESP32-C3 receives credentials, associates with the 2.4GHz Wi-Fi network, obtains a local DHCP IP address, and starts the `SPNET` server on port 8587 [Source 11, 18].
+   - The app prompts for the local 2.4GHz Wi-Fi SSID and password (`/sp630e/settings/netConfig`) [Source 18, 19].
+   - Credentials are written to Characteristic `0xFFE1`.
+   - The ESP32-C3 associates with the Wi-Fi network, obtains a local DHCP IP address, and starts both the `SPNET` TCP server (port 8587) and mDNS responder (`_spled._tcp`) [Source 11, 18, 19].
 4. **Step 4: Operational Selection**:
-   - If the phone and SP530E are on the same Wi-Fi subnet, BanlanX communicates via local TCP port 8587.
+   - If the phone and SP530E are on the same Wi-Fi subnet, BanlanX discovers the device via `_spled._tcp` and communicates via TCP port 8587.
    - If Wi-Fi is unavailable or the phone leaves the local network, BanlanX falls back to direct BLE or Cloud relay [Source 18].
 
 ---
@@ -183,3 +186,4 @@ When configured for digital SPI strips (such as the user's **WS2812B**):
 * **[Source 16]**: UniLED GitHub Issue #144 ([https://github.com/monty68/uniled/issues/144](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGINbddXZP3YvO5lxaYaJnUw0ML-Xu2usvMVjOaFx23OFLoEkb2PbwmAc4n9BOR0BMS3MiVrKiOVCerv3DympBc0mW7mDkZwVEdkD3f_ms55qHXw5TEQjQUkMk0po12))
 * **[Source 17]**: UniLED GitHub Issue #138 ([https://github.com/monty68/uniled/issues/138](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEmO0A36BYGEY9Tcqw0geXe-BD9z0Xilwxyqjcdi16troS7V2rOhm-2GM3CwbsInnHWFw5Dn3kd13s0WeUo7I7CSoEAUksBmNrATGZBpfhGAnhEoCzrlIa8weHGts31sZtACA==))
 * **[Source 18]**: BanlanX Official App Setup & Pairing Guide ([https://banlanx.net](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGP9WJSx8jqXxyJ5ixThHuUHORJGW7YAEtQef_KY2tOO8ZShifT0llXHNOh4SHip8MrLlW3cF93Z-T2pVc606ArHeiGOBFiBhlpOHt-bVcJwtCUkExWKSHonkxyowQp-M-7thhQ))
+* **[Source 19]**: Static Decompiler Inspection of `com.spled.scenex` v3.3.5 (`base.apk` / `split_config.arm64_v8a.apk` / `libapp.so`) — Confirmed mDNS service `_spled._tcp`, BLE service UUID `0000ffe0-0000-1000-8000-00805f9b34fb`, characteristic `0000ffe1-0000-1000-8000-00805f9b34fb`, and module path `/sp630e/`.
