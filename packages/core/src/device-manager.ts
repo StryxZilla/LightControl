@@ -169,6 +169,10 @@ export class DeviceManager {
     await Promise.all(stopPromises);
   }
 
+  registerDevice(device: ILedDevice): void {
+    this.handleDeviceFound(device);
+  }
+
   private handleDeviceFound(device: ILedDevice): void {
     if (!this.discoveredDevices.has(device.id)) {
       this.discoveredDevices.set(device.id, device);

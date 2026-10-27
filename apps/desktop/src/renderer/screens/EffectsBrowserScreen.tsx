@@ -46,7 +46,7 @@ export const EffectsBrowserScreen: React.FC = () => {
 
   const handleSpeedChange = (newSpeed: number) => {
     setSpeed(newSpeed);
-    if (activeEffectId !== null) {
+    if (typeof activeEffectId === 'number') {
       setEffect(activeEffectId, newSpeed);
     }
   };

@@ -1,4 +1,6 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, app } from 'electron';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { DeviceManager } from '../../../../packages/core/src/device-manager.ts';
 import { PresetManager, DEFAULT_PRESETS, type Preset } from '../../../../packages/core/src/presets.ts';
 import { MockAdapter } from '../../../../packages/adapters/src/mock/mock-adapter.ts';
@@ -48,8 +50,36 @@ export class AppIpcManager {
     this.deviceManager.registerAdapter(this.bleAdapter);
     this.deviceManager.registerAdapter(this.wledAdapter);
 
+    this.loadSettings();
     this.deviceManager.setDryRun(this.settings.dryRun);
     this.log('INFO', 'Registered all adapters: mock, sp530e (wifi/ble), wled.');
+  }
+
+  private getSettingsPath(): string {
+    try {
+      if (app && typeof app.getPath === 'function') {
+        return path.join(app.getPath('userData'), 'settings.json');
+      }
+    } catch {}
+    return path.resolve('.settings.json');
+  }
+
+  private loadSettings(): void {
+    try {
+      const p = this.getSettingsPath();
+      if (fs.existsSync(p)) {
+        const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+        this.settings = { ...this.settings, ...raw };
+      }
+    } catch {}
+  }
+
+  private saveSettings(): void {
+    try {
+      const p = this.getSettingsPath();
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, JSON.stringify(this.settings, null, 2), 'utf8');
+    } catch {}
   }
 
   public registerHandlers(mainWindow: BrowserWindow): void {
@@ -189,6 +219,7 @@ export class AppIpcManager {
       if (newSettings.dryRun !== undefined) {
         this.deviceManager.setDryRun(newSettings.dryRun);
       }
+      this.saveSettings();
       this.log('INFO', `Updated settings: dryRun=${this.settings.dryRun}, safetyLimit=${this.settings.safetyBrightnessLimit}%`);
       return { ...this.settings };
     });

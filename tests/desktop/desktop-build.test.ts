@@ -38,6 +38,7 @@ test('Desktop preload bundle exposes secure IPC methods', () => {
   assert.ok(content.includes('presets:get-all'), 'Preload must register presets:get-all');
   assert.ok(content.includes('diagnostics:get'), 'Preload must register diagnostics:get');
   assert.ok(content.includes('settings:get'), 'Preload must register settings:get');
+  assert.ok(content.includes('device:add-wled'), 'Preload must register device:add-wled');
 });
 
 test('Desktop main bundle contains HAL adapters and security config', () => {
@@ -47,6 +48,7 @@ test('Desktop main bundle contains HAL adapters and security config', () => {
   // Context isolation & security
   assert.ok(content.includes('contextIsolation: true'), 'Electron BrowserWindow must enforce contextIsolation: true');
   assert.ok(content.includes('nodeIntegration: false'), 'Electron BrowserWindow must enforce nodeIntegration: false');
+  assert.ok(content.includes('sandbox: true'), 'Electron BrowserWindow must enforce sandbox: true');
 
   // Integrated adapters
   assert.ok(content.includes('SP530EWiFiAdapter'), 'Main bundle must package SP530EWiFiAdapter');
@@ -75,4 +77,19 @@ test('Desktop renderer screens inventory exists', () => {
     const screenPath = path.join(screensDir, screen);
     assert.ok(fs.existsSync(screenPath), `Screen ${screen} must exist`);
   }
+});
+
+test('Desktop IPC Security Review: Content Security Policy & Safe Defaults', () => {
+  const distHtml = path.join(DESKTOP_ROOT, 'dist', 'index.html');
+  const htmlContent = fs.readFileSync(distHtml, 'utf8');
+
+  // Verify Content-Security-Policy
+  assert.ok(htmlContent.includes('http-equiv="Content-Security-Policy"'), 'HTML must enforce CSP');
+  assert.ok(htmlContent.includes("default-src 'self'"), 'CSP must restrict default sources to self');
+
+  // Verify settings persistence logic exists in main
+  const mainJs = path.join(DESKTOP_ROOT, 'dist-electron', 'main.js');
+  const mainContent = fs.readFileSync(mainJs, 'utf8');
+  assert.ok(mainContent.includes('settings.json'), 'Main process must persist settings to settings.json');
+  assert.ok(mainContent.includes('safetyBrightnessLimit: 20'), 'Safe default 20% brightness cap must be configured');
 });

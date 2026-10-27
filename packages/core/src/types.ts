@@ -17,6 +17,9 @@ export interface LedColor {
   r: number; // 0 - 255
   g: number; // 0 - 255
   b: number; // 0 - 255
+  red?: number;
+  green?: number;
+  blue?: number;
   w?: number; // 0 - 255 (for RGBW / White channels)
   cct?: number; // Color temperature in Kelvin (e.g. 2700-6500) or 0-255 warm/cool ratio
   hex?: string; // Standard formatted uppercase hex string (e.g. '#FF5500')

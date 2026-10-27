@@ -7,6 +7,8 @@
     "outDir": "dist-electron",
     "skipLibCheck": true,
     "strict": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
       "@core/*": ["../../packages/core/src/*"],
