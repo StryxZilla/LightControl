@@ -12,7 +12,8 @@
     "test": "node --experimental-strip-types --test tests/**/*.test.ts",
     "desktop:dev": "npm --workspace=@led-controller/desktop run dev",
     "desktop:build": "npm --workspace=@led-controller/desktop run build",
-    "desktop:start": "npm --workspace=@led-controller/desktop run start"
+    "desktop:start": "npm --workspace=@led-controller/desktop run start",
+    "package:portable": "npm --workspace=@led-controller/desktop run package:portable"
   },
   "author": "Antigravity Autonomous Engineering",
   "license": "MIT"

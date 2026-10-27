@@ -7,6 +7,13 @@ import { AppIpcManager } from './ipc-handlers.ts';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Ensure stable persistent userData in %APPDATA%\LightControl so settings survive portable extraction
+if (process.platform === 'win32') {
+  app.name = 'LightControl';
+  const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+  app.setPath('userData', path.join(appData, 'LightControl'));
+}
+
 let mainWindow: BrowserWindow | null = null;
 const ipcManager = new AppIpcManager();
 
@@ -17,6 +24,7 @@ function createWindow(): void {
     minWidth: 980,
     minHeight: 650,
     title: 'Universal LED Controller',
+    icon: path.resolve(app.getAppPath(), 'build/icon.ico'),
     backgroundColor: '#0d1117',
     show: false,
     frame: true,
@@ -50,7 +58,9 @@ function createWindow(): void {
       setTimeout(async () => {
         try {
           const image = await mainWindow!.webContents.capturePage();
-          fs.mkdirSync(path.dirname(outPath), { recursive: true });
+          if (!fs.existsSync(path.dirname(outPath))) {
+            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+          }
           fs.writeFileSync(outPath, image.toPNG());
           console.log(`SCREENSHOT_SAVED: ${outPath}`);
         } catch (err: any) {

@@ -225,12 +225,6 @@
 
 ---
 
-## Status of Hardware Verification
-- **BanlanX SP530E**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE** (tested via live Wi-Fi TCP port 8587 on `192.168.86.34:8587`).
-- **QuinLED dig2go (WLED)**: **SIMULATOR-TESTED & VERIFIED** (all API calls, presets, segments, and WebSocket sync pass against local mock server; physical hardware validation pending device delivery).
-
----
-
 ### Prompt 12: Comprehensive Quality Assurance & System Verification (2026-10-27)
 - **Quality Assurance Scope**:
   - Full TypeScript compilation and strict type-checking across workspace root, desktop app, packages, and test suites (`npx tsc --noEmit`).
@@ -252,6 +246,35 @@
   - `docs/COMPATIBILITY_REPORT.md`: Granular classification across the four requested hardware/simulator statuses.
   - `docs/KNOWN_ISSUES.md`: Identified environmental constraints, headless GPU logging nuances, and power budget mitigations.
   - `docs/REMAINING_WORK.md`: Strategic engineering roadmap for hardware arrival, cross-controller synchronization, and Windows packaging.
+
+---
+
+### Prompt 13: Single Portable Windows Executable Packaging (2026-10-27)
+- **Objective**: Package the Universal LED Controller desktop application as a standalone, zero-installer portable Windows executable (`LightControl-Portable.exe`).
+- **Configuration & Architecture**:
+  - Configured `apps/desktop/electron-builder.json` with the Windows `portable` target (`arch: ["x64"]`, `requestExecutionLevel: "user"`).
+  - Explicitly avoided NSIS installer wizards, MSI, MSIX, and UAC elevation prompts.
+  - Pinned Electron runtime to `34.5.8` and set application identity to `LightControl` (Universal LED Engineering).
+  - Configured `extraResources` mapping to bundle the compiled C# WinRT BLE helper (`Sp530eBleHelper.exe`) into `resources/bin/Sp530eBleHelper.exe`.
+  - Updated `Sp530eWindowsBleTransport` with multi-path resolution (`process.resourcesPath/bin`, `process.resourcesPath`, dev directory) ensuring reliable native Windows WinRT BLE operation inside packaged Electron.
+- **Settings Persistence Outside Temp Directories**:
+  - Overrode default temporary extraction directory in `apps/desktop/src/main/main.ts` by explicitly pointing `app.setPath('userData', '%APPDATA%\\LightControl')`.
+  - Implemented disk persistence in `apps/desktop/src/main/ipc-handlers.ts` saving user configurations and preferences to `%APPDATA%\LightControl\settings.json`.
+- **Application Icons & Visual Metadata**:
+  - Developed PowerShell multi-resolution icon generator (`scripts/generate-icon.ps1`) producing clean, modern starburst LED controller icons:
+    - Multi-resolution Windows icon (`apps/desktop/build/icon.ico`: 256x256, 48x48, 32x32, 16x16).
+    - High-resolution PNG asset (`apps/desktop/build/icon.png`).
+- **Automated Build Pipeline**:
+  - Created end-to-end automated build script `scripts/build-portable.ps1` covering pre-checks, C# helper compilation, icon generation, 75-test test suite verification, Vite/esbuild bundle creation, and `electron-builder` packaging.
+  - Added root and desktop workspace npm script `"package:portable"`.
+- **Verification & Testing**:
+  - Packaged single-file artifact: `G:\Light Test\release\LightControl-Portable.exe` (77.53 MB).
+  - Verified embedded resources: `win-unpacked\resources\bin\Sp530eBleHelper.exe` and `win-unpacked\resources\app.asar`.
+  - Verified executable metadata: Product Name `LightControl`, Version `0.1.0`, Architecture `x64`.
+  - Executed automated test suite: **75 out of 75 tests passing (`npm test`) in 770 ms**.
+  - Verified standalone headless launch without installer wizard via `--smoke-test`.
+- **Documentation Deliverables**:
+  - `docs/PORTABLE_BUILD.md`: Full architectural reference, rebuild instructions, launch guidelines, SmartScreen workarounds, and troubleshooting.
 
 ---
 

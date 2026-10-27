@@ -28,9 +28,25 @@ export class Sp530eWindowsBleTransport implements ISp530eTransport {
   constructor(options: BleTransportOptions = {}) {
     this.dryRun = options.dryRun ?? true;
 
-    // Resolve helper path
-    const defaultPath = path.resolve(process.cwd(), 'packages', 'adapters', 'src', 'sp530e', 'ble-helper', 'Sp530eBleHelper.exe');
-    this.helperPath = options.helperPath ?? defaultPath;
+    // Resolve helper path across development and packaged environments
+    const candidatePaths = [
+      options.helperPath,
+      typeof process !== 'undefined' && (process as any).resourcesPath
+        ? path.join((process as any).resourcesPath, 'bin', 'Sp530eBleHelper.exe')
+        : undefined,
+      typeof process !== 'undefined' && (process as any).resourcesPath
+        ? path.join((process as any).resourcesPath, 'Sp530eBleHelper.exe')
+        : undefined,
+      typeof process !== 'undefined' && process.execPath
+        ? path.join(path.dirname(process.execPath), 'bin', 'Sp530eBleHelper.exe')
+        : undefined,
+      path.resolve(process.cwd(), 'packages', 'adapters', 'src', 'sp530e', 'ble-helper', 'Sp530eBleHelper.exe'),
+      path.resolve(process.cwd(), '..', '..', 'packages', 'adapters', 'src', 'sp530e', 'ble-helper', 'Sp530eBleHelper.exe'),
+    ].filter((p): p is string => typeof p === 'string' && fs.existsSync(p));
+
+    this.helperPath =
+      candidatePaths[0] ??
+      path.resolve(process.cwd(), 'packages', 'adapters', 'src', 'sp530e', 'ble-helper', 'Sp530eBleHelper.exe');
   }
 
   get isConnected(): boolean {

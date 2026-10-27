@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.antigravity.lightcontrol",
+  "productName": "LightControl",
+  "electronVersion": "34.5.8",
+  "copyright": "Copyright © 2026 Antigravity Autonomous Engineering",
+  "directories": {
+    "output": "../../release"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.ico",
+    "artifactName": "LightControl-Portable.${ext}"
+  },
+  "portable": {
+    "artifactName": "LightControl-Portable.exe",
+    "requestExecutionLevel": "user"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "build/icon.ico",
+    "build/icon.png",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "../../packages/adapters/src/sp530e/ble-helper/Sp530eBleHelper.exe",
+      "to": "bin/Sp530eBleHelper.exe"
+    }
+  ]
+}
