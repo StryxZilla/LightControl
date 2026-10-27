@@ -139,11 +139,16 @@ export class DeviceManager {
 
   /**
    * Starts discovery across all registered adapters concurrently.
+   * If clearStale is true, previously discovered devices not found in the new scan are marked 'unavailable'.
    */
-  async startDiscovery(): Promise<void> {
+  async startDiscovery(clearStale = false): Promise<void> {
+    const preDiscoveryIds = new Set(this.discoveredDevices.keys());
+    const seenInThisScan = new Set<string>();
+
     const discoveryPromises = Array.from(this.adapters.values()).map(async (adapter) => {
       try {
         await adapter.startDiscovery((device) => {
+          seenInThisScan.add(device.id);
           this.handleDeviceFound(device);
         });
       } catch (err) {
@@ -152,6 +157,25 @@ export class DeviceManager {
     });
 
     await Promise.all(discoveryPromises);
+
+    if (clearStale) {
+      for (const id of preDiscoveryIds) {
+        if (!seenInThisScan.has(id)) {
+          const dev = this.discoveredDevices.get(id);
+          if (dev && dev.connectionInfo.state !== 'connected') {
+            dev.connectionInfo.state = 'unavailable';
+            dev.connectionInfo.connected = false;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Triggers a fresh rescan across all registered adapters.
+   */
+  async rescan(): Promise<void> {
+    await this.startDiscovery(true);
   }
 
   /**
@@ -174,9 +198,19 @@ export class DeviceManager {
   }
 
   private handleDeviceFound(device: ILedDevice): void {
-    if (!this.discoveredDevices.has(device.id)) {
+    const existing = this.discoveredDevices.get(device.id);
+    if (!existing) {
       this.discoveredDevices.set(device.id, device);
       this.stateManager.registerDevice(device);
+    } else {
+      // Update existing device reference and state
+      existing.connectionInfo.state = device.connectionInfo.state;
+      existing.connectionInfo.connected = device.connectionInfo.connected;
+      existing.connectionInfo.address = device.connectionInfo.address;
+      existing.connectionInfo.signalStrength = device.connectionInfo.signalStrength;
+      existing.connectionInfo.lastSeen = Date.now();
+      existing.state = { ...existing.state, ...device.state };
+      existing.capabilities = { ...existing.capabilities, ...device.capabilities };
     }
   }
 
@@ -198,8 +232,13 @@ export class DeviceManager {
     }
 
     if (this.dryRun) {
+      device.connectionInfo.state = 'connected';
+      device.connectionInfo.connected = true;
+      device.connectionInfo.lastConnectedAt = Date.now();
       return true;
     }
+
+    device.connectionInfo.state = 'connecting';
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -211,9 +250,15 @@ export class DeviceManager {
     try {
       const success = await Promise.race([device.connect(), timeoutPromise]);
       if (timer) clearTimeout(timer);
+      if (success) {
+        device.connectionInfo.state = 'connected';
+        device.connectionInfo.connected = true;
+      }
       return success;
     } catch (err: any) {
       if (timer) clearTimeout(timer);
+      device.connectionInfo.state = 'error';
+      device.connectionInfo.connected = false;
       const errorEvent: DeviceErrorEvent = {
         deviceId: id,
         code: 'ERR_CONNECT_TIMEOUT',

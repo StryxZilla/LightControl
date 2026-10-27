@@ -31,7 +31,8 @@ export interface AppSettings {
 
 export interface ElectronApi {
   getDevices(): Promise<SerializedDevice[]>;
-  startDiscovery(): Promise<void>;
+  startDiscovery(): Promise<SerializedDevice[]>;
+  rescanDevices?(): Promise<SerializedDevice[]>;
   stopDiscovery(): Promise<void>;
   addWledDevice?(host: string, port?: number, name?: string): Promise<SerializedDevice>;
   connectDevice(deviceId: string): Promise<boolean>;
@@ -50,12 +51,14 @@ export interface ElectronApi {
     version: string;
     platform: string;
     uptimeSec: number;
+    logFilePath?: string | null;
     logs: Array<{ level: string; message: string; timestamp: number }>;
   }>;
   getSettings(): Promise<AppSettings>;
   updateSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
   onStateChange(callback: (event: DeviceStateChangeEvent) => void): () => void;
   onError(callback: (event: DeviceErrorEvent) => void): () => void;
+  onDiscoveredAll?(callback: (devices: SerializedDevice[]) => void): () => void;
 }
 
 declare global {

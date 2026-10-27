@@ -12,6 +12,7 @@ import type { Preset } from '../../../../packages/core/src/presets.ts';
 const api: ElectronApi = {
   getDevices: () => ipcRenderer.invoke('devices:get-all'),
   startDiscovery: () => ipcRenderer.invoke('discovery:start'),
+  rescanDevices: () => ipcRenderer.invoke('devices:rescan'),
   stopDiscovery: () => ipcRenderer.invoke('discovery:stop'),
   addWledDevice: (host: string, port = 80, name?: string) =>
     ipcRenderer.invoke('device:add-wled', host, port, name),
@@ -50,6 +51,12 @@ const api: ElectronApi = {
     const handler = (_: IpcRendererEvent, event: DeviceErrorEvent) => callback(event);
     ipcRenderer.on('device:error', handler);
     return () => ipcRenderer.removeListener('device:error', handler);
+  },
+
+  onDiscoveredAll: (callback: (devices: SerializedDevice[]) => void) => {
+    const handler = (_: IpcRendererEvent, devices: SerializedDevice[]) => callback(devices);
+    ipcRenderer.on('device:discovered-all', handler);
+    return () => ipcRenderer.removeListener('device:discovered-all', handler);
   },
 };
 

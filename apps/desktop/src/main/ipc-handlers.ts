@@ -6,7 +6,9 @@ import { PresetManager, DEFAULT_PRESETS, type Preset } from '../../../../package
 import { MockAdapter } from '../../../../packages/adapters/src/mock/mock-adapter.ts';
 import { SP530EWiFiAdapter } from '../../../../packages/adapters/src/sp530e/sp530e-wifi-adapter.ts';
 import { SP530EBleAdapter } from '../../../../packages/adapters/src/sp530e/sp530e-ble-adapter.ts';
+import { Sp530eWindowsBleTransport } from '../../../../packages/adapters/src/sp530e/sp530e-windows-ble-transport.ts';
 import { WledAdapter } from '../../../../packages/adapters/src/wled/wled-adapter.ts';
+import { DiagnosticsService } from '../../../../packages/core/src/diagnostics.ts';
 import type { SerializedDevice, AppSettings } from '../preload/types.ts';
 import type {
   ILedDevice,
@@ -18,13 +20,15 @@ import type {
 export class AppIpcManager {
   private deviceManager: DeviceManager;
   private presetManager: PresetManager;
+  private diagnostics: DiagnosticsService;
   private mockAdapter: MockAdapter;
   private wifiAdapter: SP530EWiFiAdapter;
   private bleAdapter: SP530EBleAdapter;
+  private bleTransport: Sp530eWindowsBleTransport;
   private wledAdapter: WledAdapter;
 
   private settings: AppSettings = {
-    dryRun: true, // Safe default
+    dryRun: true, // Safe default on first run
     safetyBrightnessLimit: 20,
     autoConnectLastDevice: true,
     theme: 'dark',
@@ -32,16 +36,25 @@ export class AppIpcManager {
     wifiPort: 8587,
   };
 
-  private logs: Array<{ level: string; message: string; timestamp: number }> = [];
-
   constructor() {
     this.deviceManager = new DeviceManager();
     this.presetManager = new PresetManager(DEFAULT_PRESETS);
 
+    // Initialize stable persistent diagnostics log file in %APPDATA%\LightControl\logs\diagnostic.log
+    const logFilePath = this.getLogFilePath();
+    this.diagnostics = new DiagnosticsService(1000, logFilePath);
+
+    this.loadSettings();
+
     // Initialize adapters
     this.mockAdapter = new MockAdapter();
-    this.wifiAdapter = new SP530EWiFiAdapter();
-    this.bleAdapter = new SP530EBleAdapter();
+    this.wifiAdapter = new SP530EWiFiAdapter(this.settings.wifiHost, this.diagnostics);
+    this.wifiAdapter.dryRun = this.settings.dryRun;
+
+    this.bleTransport = new Sp530eWindowsBleTransport({ dryRun: this.settings.dryRun });
+    this.bleAdapter = new SP530EBleAdapter(undefined, this.bleTransport, this.diagnostics);
+    this.bleAdapter.dryRun = this.settings.dryRun;
+
     this.wledAdapter = new WledAdapter();
 
     // Register adapters into DeviceManager DI container
@@ -50,9 +63,19 @@ export class AppIpcManager {
     this.deviceManager.registerAdapter(this.bleAdapter);
     this.deviceManager.registerAdapter(this.wledAdapter);
 
-    this.loadSettings();
     this.deviceManager.setDryRun(this.settings.dryRun);
-    this.log('INFO', 'Registered all adapters: mock, sp530e (wifi/ble), wled.');
+    this.diagnostics.log('info', 'SYSTEM', `Registered adapters: mock, sp530e-wifi, sp530e-ble, wled. LogFile: ${logFilePath}`);
+  }
+
+  private getLogFilePath(): string {
+    try {
+      if (app && typeof app.getPath === 'function') {
+        const logDir = path.join(app.getPath('userData'), 'logs');
+        fs.mkdirSync(logDir, { recursive: true });
+        return path.join(logDir, 'diagnostic.log');
+      }
+    } catch {}
+    return path.resolve('diagnostic.log');
   }
 
   private getSettingsPath(): string {
@@ -103,37 +126,42 @@ export class AppIpcManager {
     });
 
     ipcMain.handle('discovery:start', async () => {
-      this.log('INFO', 'Starting discovery across all registered adapters...');
-      await this.deviceManager.startDiscovery();
+      this.diagnostics.logScan('START', 'all');
+      await this.deviceManager.startDiscovery(false);
+      return this.serializeDevices(this.deviceManager.getDiscoveredDevices());
+    });
+
+    ipcMain.handle('devices:rescan', async () => {
+      this.diagnostics.log('info', 'RESCAN', 'Fresh rescan requested by UI');
+      await this.deviceManager.rescan();
       return this.serializeDevices(this.deviceManager.getDiscoveredDevices());
     });
 
     ipcMain.handle('discovery:stop', async () => {
-      this.log('INFO', 'Stopping discovery...');
+      this.diagnostics.logScan('STOP', 'all');
       await this.deviceManager.stopDiscovery();
     });
 
     ipcMain.handle('device:add-wled', async (_, host: string, port = 80, name?: string) => {
-      this.log('INFO', `Registering manual WLED device: ${host}:${port}`);
+      this.diagnostics.log('info', 'WLED', `Registering manual WLED device: ${host}:${port}`);
       const dev = this.wledAdapter.addDevice(host, port, name || `QuinLED dig2go (${host})`);
       this.deviceManager.registerDevice(dev);
       return this.serializeDevices([dev])[0]!;
     });
 
     ipcMain.handle('device:connect', async (_, deviceId: string) => {
-      this.log('INFO', `Connecting to device: ${deviceId}`);
+      this.diagnostics.log('info', 'IPC', `IPC device:connect requested for ${deviceId}`);
       try {
-        const ok = await this.deviceManager.connectDevice(deviceId, 4000);
-        this.log('INFO', `Device ${deviceId} connected: ${ok}`);
+        const ok = await this.deviceManager.connectDevice(deviceId, 5000);
         return ok;
       } catch (err: any) {
-        this.log('ERROR', `Failed connecting to ${deviceId}: ${err.message}`);
+        this.diagnostics.log('error', 'IPC', `Connect failed for ${deviceId}: ${err.message}`);
         throw err;
       }
     });
 
     ipcMain.handle('device:disconnect', async (_, deviceId: string) => {
-      this.log('INFO', `Disconnecting device: ${deviceId}`);
+      this.diagnostics.log('info', 'IPC', `IPC device:disconnect requested for ${deviceId}`);
       await this.deviceManager.disconnectDevice(deviceId);
     });
 
@@ -146,7 +174,6 @@ export class AppIpcManager {
     ipcMain.handle('device:set-brightness', async (_, deviceId: string, brightness: number) => {
       const dev = this.deviceManager.getDevice(deviceId);
       if (!dev) throw new Error(`Device not found: ${deviceId}`);
-      // Enforce configured safety limit
       const clamped = Math.min(brightness, this.settings.safetyBrightnessLimit);
       return this.deviceManager.getRateLimiter().execute(deviceId, () => dev.setBrightness(clamped));
     });
@@ -187,17 +214,17 @@ export class AppIpcManager {
 
     ipcMain.handle('presets:save', async (_, preset: Preset) => {
       this.presetManager.savePreset(preset);
-      this.log('INFO', `Saved preset: ${preset.name}`);
+      this.diagnostics.log('info', 'PRESET', `Saved preset: ${preset.name}`);
     });
 
     ipcMain.handle('presets:delete', async (_, presetId: string) => {
       const ok = this.presetManager.deletePreset(presetId);
-      this.log('INFO', `Deleted preset ${presetId}: ${ok}`);
+      this.diagnostics.log('info', 'PRESET', `Deleted preset ${presetId}: ${ok}`);
       return ok;
     });
 
     ipcMain.handle('presets:apply', async (_, deviceId: string, presetId: string) => {
-      this.log('INFO', `Applying preset ${presetId} to device ${deviceId}`);
+      this.diagnostics.log('info', 'PRESET', `Applying preset ${presetId} to device ${deviceId}`);
       return this.presetManager.applyPreset(deviceId, presetId, this.deviceManager);
     });
 
@@ -206,8 +233,13 @@ export class AppIpcManager {
         version: '0.1.0',
         platform: process.platform,
         uptimeSec: Math.round(process.uptime()),
-        logs: [...this.logs],
+        logFilePath: this.diagnostics.getLogFilePath(),
+        logs: this.diagnostics.getRecentLogs(100),
       };
+    });
+
+    ipcMain.handle('diagnostics:export', async () => {
+      return this.diagnostics.exportDiagnosticReport();
     });
 
     ipcMain.handle('settings:get', async () => {
@@ -218,11 +250,32 @@ export class AppIpcManager {
       this.settings = { ...this.settings, ...newSettings };
       if (newSettings.dryRun !== undefined) {
         this.deviceManager.setDryRun(newSettings.dryRun);
+        this.wifiAdapter.dryRun = newSettings.dryRun;
+        this.bleAdapter.dryRun = newSettings.dryRun;
+        this.bleTransport.dryRun = newSettings.dryRun;
+      }
+      if (newSettings.wifiHost) {
+        this.wifiAdapter.setDefaultHost(newSettings.wifiHost);
       }
       this.saveSettings();
-      this.log('INFO', `Updated settings: dryRun=${this.settings.dryRun}, safetyLimit=${this.settings.safetyBrightnessLimit}%`);
+      this.diagnostics.log(
+        'info',
+        'SETTINGS',
+        `Updated settings: dryRun=${this.settings.dryRun}, safetyLimit=${this.settings.safetyBrightnessLimit}%`
+      );
       return { ...this.settings };
     });
+
+    // Auto-discover devices 400ms after window is ready
+    setTimeout(async () => {
+      try {
+        await this.deviceManager.startDiscovery(false);
+        const devs = this.deviceManager.getDiscoveredDevices();
+        if (!mainWindow.isDestroyed() && devs.length > 0) {
+          mainWindow.webContents.send('device:discovered-all', this.serializeDevices(devs));
+        }
+      } catch {}
+    }, 400);
   }
 
   private serializeDevices(devices: ILedDevice[]): SerializedDevice[] {
@@ -234,10 +287,5 @@ export class AppIpcManager {
       capabilities: { ...d.capabilities },
       state: { ...d.state },
     }));
-  }
-
-  private log(level: string, message: string): void {
-    this.logs.push({ level, message, timestamp: Date.now() });
-    if (this.logs.length > 300) this.logs.shift();
   }
 }

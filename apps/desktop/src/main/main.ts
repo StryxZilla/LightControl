@@ -18,13 +18,20 @@ let mainWindow: BrowserWindow | null = null;
 const ipcManager = new AppIpcManager();
 
 function createWindow(): void {
+  const iconCandidates = [
+    path.resolve(__dirname, '../build/icon.ico'),
+    path.resolve(__dirname, '../../build/icon.ico'),
+    path.resolve(app.getAppPath(), 'build/icon.ico'),
+  ];
+  const windowIcon = iconCandidates.find((p) => fs.existsSync(p));
+
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
     minWidth: 980,
     minHeight: 650,
     title: 'Universal LED Controller',
-    icon: path.resolve(app.getAppPath(), 'build/icon.ico'),
+    icon: windowIcon,
     backgroundColor: '#0d1117',
     show: false,
     frame: true,

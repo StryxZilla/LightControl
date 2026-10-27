@@ -10,9 +10,11 @@ export const DeviceConnectionScreen: React.FC = () => {
     connectDevice,
     disconnectDevice,
     startDiscovery,
+    rescanDevices,
     stopDiscovery,
     addWledDevice,
     isScanning,
+    statusMessage,
   } = useDevice();
 
   const [targetType, setTargetType] = useState<'sp530e' | 'wled'>('sp530e');
@@ -68,6 +70,14 @@ export const DeviceConnectionScreen: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => rescanDevices()}
+            disabled={isScanning}
+            className="px-3.5 py-2 bg-[#21262d] hover:bg-[#30363d] text-gray-200 border border-[#30363d] rounded-md text-xs font-semibold flex items-center gap-2 transition-all disabled:opacity-50"
+          >
+            <Icon name="refresh" className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+            <span>Rescan All</span>
+          </button>
+          <button
             onClick={() => (isScanning ? stopDiscovery() : startDiscovery())}
             className={`px-4 py-2 rounded-md text-xs font-semibold flex items-center gap-2 transition-all shadow-md ${
               isScanning
@@ -80,6 +90,16 @@ export const DeviceConnectionScreen: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Status Alert Banner */}
+      {statusMessage && (
+        <div className="p-3 bg-blue-950/40 border border-blue-500/40 text-blue-200 text-xs rounded-lg flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+            <span>{statusMessage}</span>
+          </div>
+        </div>
+      )}
 
       {/* Manual Connection Input Card */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-6">
@@ -219,8 +239,16 @@ export const DeviceConnectionScreen: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <span
                     className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                      isConnected
+                      device.connectionInfo.state === 'connected'
                         ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : device.connectionInfo.state === 'connecting'
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse'
+                        : device.connectionInfo.state === 'discovered'
+                        ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                        : device.connectionInfo.state === 'unavailable'
+                        ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
+                        : device.connectionInfo.state === 'error'
+                        ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
                         : 'bg-gray-800 text-gray-400 border border-gray-700'
                     }`}
                   >

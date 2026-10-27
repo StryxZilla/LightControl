@@ -1,4 +1,5 @@
 import * as net from 'node:net';
+import * as cp from 'node:child_process';
 import type {
   ILedDevice,
   ILedAdapter,
@@ -13,6 +14,7 @@ import type {
   TransportType,
 } from '../../../core/src/types.ts';
 import { SpnetCodec, SPNET_PORT, type SpnetParsedState } from './spnet-codec.ts';
+import type { DiagnosticsService } from '../../../core/src/diagnostics.ts';
 
 export const SP530E_DEFAULT_EFFECTS = [
   { id: 1, name: 'Rainbow Flow', category: 'dynamic', speedSupported: true, directionSupported: true },
@@ -27,6 +29,12 @@ export const SP530E_DEFAULT_EFFECTS = [
   { id: 10, name: 'Rainbow Cycle', category: 'dynamic', speedSupported: true },
 ];
 
+export interface SP530EWiFiDeviceOptions {
+  name?: string;
+  dryRun?: boolean;
+  diagnostics?: DiagnosticsService;
+}
+
 export class SP530EWiFiDevice implements ILedDevice {
   readonly id: string;
   readonly name: string;
@@ -35,17 +43,30 @@ export class SP530EWiFiDevice implements ILedDevice {
   capabilities: DeviceCapabilities;
   state: LedState;
 
+  public dryRun: boolean;
+  public lastEncodedFrame: Uint8Array | null = null;
+
   private socket: net.Socket | null = null;
   private readonly host: string;
   private readonly port: number;
+  private diagnostics?: DiagnosticsService;
   private stateListeners = new Set<(event: DeviceStateChangeEvent) => void>();
   private errorListeners = new Set<(event: DeviceErrorEvent) => void>();
+  private queryBuffer: Buffer = Buffer.alloc(0);
+  private queryResolver: ((data: Uint8Array) => void) | null = null;
 
-  constructor(host: string, port: number = SPNET_PORT, initialName: string = 'SP530E Wi-Fi Controller') {
+  constructor(
+    host: string,
+    port: number = SPNET_PORT,
+    initialName: string = 'SP530E Wi-Fi Controller',
+    options: SP530EWiFiDeviceOptions = {}
+  ) {
     this.host = host;
     this.port = port;
     this.id = `sp530e-wifi-${host.replace(/\./g, '-')}`;
     this.name = initialName;
+    this.dryRun = options.dryRun ?? false;
+    this.diagnostics = options.diagnostics;
 
     this.connectionInfo = {
       transport: 'wifi-tcp',
@@ -79,8 +100,8 @@ export class SP530EWiFiDevice implements ILedDevice {
 
     this.state = {
       power: true,
-      brightness: 100,
-      color: { r: 255, g: 255, b: 255 },
+      brightness: 20,
+      color: { r: 255, g: 255, b: 255, hex: '#FFFFFF' },
       mode: 'solid',
       effectId: 0,
       effectSpeed: 50,
@@ -91,12 +112,25 @@ export class SP530EWiFiDevice implements ILedDevice {
     };
   }
 
+  setDiagnostics(diag: DiagnosticsService): void {
+    this.diagnostics = diag;
+  }
+
   async connect(): Promise<boolean> {
-    if (this.connectionInfo.state === 'connected' && this.socket) {
+    if (this.connectionInfo.state === 'connected' && this.socket && !this.socket.destroyed) {
       return true;
     }
 
     this.connectionInfo.state = 'connecting';
+    this.diagnostics?.logConnectionAttempt(this.id, 'wifi-tcp', `${this.host}:${this.port}`);
+
+    if (this.dryRun) {
+      this.connectionInfo.state = 'connected';
+      this.connectionInfo.connected = true;
+      this.connectionInfo.lastConnectedAt = Date.now();
+      this.diagnostics?.logConnectionResult(this.id, true, 'wifi-tcp (dry-run)');
+      return true;
+    }
 
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
@@ -107,14 +141,36 @@ export class SP530EWiFiDevice implements ILedDevice {
         this.connectionInfo.state = 'connected';
         this.connectionInfo.connected = true;
         this.connectionInfo.lastConnectedAt = Date.now();
+        this.diagnostics?.logConnectionResult(this.id, true, 'wifi-tcp');
 
         try {
-          // Perform passive telemetry handshake to read current state
+          // Perform passive telemetry query to populate live parameters
           await this.refreshState();
-          resolve(true);
         } catch {
-          // Connected even if initial refresh had a delay
-          resolve(true);
+          // Keep connected even if initial query response was delayed
+        }
+        resolve(true);
+      });
+
+      socket.on('data', (chunk: Buffer) => {
+        this.queryBuffer = Buffer.concat([this.queryBuffer, chunk]);
+
+        if (this.queryBuffer.length >= 13) {
+          const payloadLen = (this.queryBuffer[11]! << 8) | this.queryBuffer[12]!;
+          const totalExpected = 13 + payloadLen;
+
+          if (this.queryBuffer.length >= totalExpected) {
+            const completePacket = new Uint8Array(this.queryBuffer.subarray(0, totalExpected));
+            this.queryBuffer = this.queryBuffer.subarray(totalExpected);
+
+            this.diagnostics?.logDeviceResponse(this.id, Buffer.from(completePacket).toString('hex'));
+
+            if (this.queryResolver) {
+              const res = this.queryResolver;
+              this.queryResolver = null;
+              res(completePacket);
+            }
+          }
         }
       });
 
@@ -123,6 +179,7 @@ export class SP530EWiFiDevice implements ILedDevice {
         this.connectionInfo.connected = false;
         this.connectionInfo.disconnectReason = err.message;
         this.socket = null;
+        this.diagnostics?.logConnectionResult(this.id, false, 'wifi-tcp', err.message);
         this.emitError('ERR_WIFI_CONNECT', err.message);
         reject(err);
       });
@@ -131,14 +188,16 @@ export class SP530EWiFiDevice implements ILedDevice {
         this.connectionInfo.state = 'disconnected';
         this.connectionInfo.connected = false;
         this.socket = null;
+        this.diagnostics?.logDisconnect(this.id, 'TCP socket closed by peer');
       });
 
       socket.on('timeout', () => {
         socket.destroy();
-        this.connectionInfo.state = 'disconnected';
+        this.connectionInfo.state = 'unavailable';
         this.connectionInfo.connected = false;
         this.socket = null;
         const err = new Error(`Connection to ${this.host}:${this.port} timed out`);
+        this.diagnostics?.logConnectionResult(this.id, false, 'wifi-tcp', err.message);
         this.emitError('ERR_WIFI_TIMEOUT', err.message);
         reject(err);
       });
@@ -152,6 +211,42 @@ export class SP530EWiFiDevice implements ILedDevice {
     }
     this.connectionInfo.state = 'disconnected';
     this.connectionInfo.connected = false;
+    this.diagnostics?.logDisconnect(this.id, 'User requested disconnect');
+  }
+
+  /**
+   * Transmits a control frame over the active TCP socket or handles dry-run mode.
+   */
+  private async writeControlPacket(opcodeDesc: string, frame: Uint8Array): Promise<boolean> {
+    this.lastEncodedFrame = frame;
+    const hex = Buffer.from(frame).toString('hex');
+    this.diagnostics?.logCommandEncoded(this.id, opcodeDesc, hex);
+
+    if (this.dryRun) {
+      this.diagnostics?.logCommandTransmitted(this.id, `${opcodeDesc} (DRY-RUN)`, hex, frame.length);
+      return true;
+    }
+
+    if (!this.socket || this.connectionInfo.state !== 'connected') {
+      await this.connect();
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Write command ${opcodeDesc} to ${this.host}:${this.port} timed out`));
+      }, 3000);
+
+      this.socket?.write(frame, (err) => {
+        clearTimeout(timer);
+        if (err) {
+          this.diagnostics?.log('error', 'TRANSMIT', `Failed transmitting ${opcodeDesc}: ${err.message}`, { err });
+          reject(err);
+        } else {
+          this.diagnostics?.logCommandTransmitted(this.id, opcodeDesc, hex, frame.length);
+          resolve(true);
+        }
+      });
+    });
   }
 
   /**
@@ -184,6 +279,37 @@ export class SP530EWiFiDevice implements ILedDevice {
   }
 
   private async sendQueryPacket(): Promise<Uint8Array> {
+    const queryFrame = SpnetCodec.buildQueryFrame();
+    this.lastEncodedFrame = queryFrame;
+
+    if (this.dryRun) {
+      return new Uint8Array(428);
+    }
+
+    // If already connected, use the primary socket
+    if (this.socket && this.connectionInfo.state === 'connected' && !this.socket.destroyed) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.queryResolver = null;
+          reject(new Error(`Timeout reading telemetry from active socket ${this.host}:${this.port}`));
+        }, 3000);
+
+        this.queryResolver = (data) => {
+          clearTimeout(timer);
+          resolve(data);
+        };
+
+        this.socket!.write(queryFrame, (err) => {
+          if (err) {
+            clearTimeout(timer);
+            this.queryResolver = null;
+            reject(err);
+          }
+        });
+      });
+    }
+
+    // Otherwise use a short temporary handshake socket
     return new Promise((resolve, reject) => {
       const tempSocket = new net.Socket();
       tempSocket.setTimeout(3000);
@@ -191,7 +317,6 @@ export class SP530EWiFiDevice implements ILedDevice {
       let buffer = Buffer.alloc(0);
 
       tempSocket.connect(this.port, this.host, () => {
-        const queryFrame = SpnetCodec.buildQueryFrame();
         tempSocket.write(queryFrame);
       });
 
@@ -219,6 +344,8 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   async setPower(on: boolean): Promise<boolean> {
     const prev = { ...this.state };
+    const frame = SpnetCodec.encodePower(on);
+    await this.writeControlPacket(`Power ${on ? 'ON' : 'OFF'}`, frame);
     this.state.power = on;
     this.emitStateChange(prev);
     return true;
@@ -227,14 +354,24 @@ export class SP530EWiFiDevice implements ILedDevice {
   async setBrightness(brightness: number): Promise<boolean> {
     const prev = { ...this.state };
     const min = this.capabilities.brightnessRange.min;
-    const max = this.capabilities.brightnessRange.max;
-    this.state.brightness = Math.max(min, Math.min(max, Math.round(brightness)));
+    const max = this.capabilities.brightnessRange.safetyLimit || this.capabilities.brightnessRange.max;
+    const clamped = Math.max(min, Math.min(max, Math.round(brightness)));
+
+    // Scale 0-100% to 0-255 hardware byte
+    const hardwareByte = Math.round((clamped / 100) * 255);
+    const frame = SpnetCodec.encodeBrightness(hardwareByte);
+    await this.writeControlPacket(`Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame);
+
+    this.state.brightness = clamped;
     this.emitStateChange(prev);
     return true;
   }
 
   async setColor(color: LedColor): Promise<boolean> {
     const prev = { ...this.state };
+    const frame = SpnetCodec.encodeColor(color.r, color.g, color.b);
+    await this.writeControlPacket(`Color RGB(${color.r},${color.g},${color.b})`, frame);
+
     this.state.color = { ...color };
     this.state.mode = 'solid';
     this.emitStateChange(prev);
@@ -243,17 +380,34 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   async setEffect(effectId: number, speed?: number): Promise<boolean> {
     const prev = { ...this.state };
+    const frame = SpnetCodec.encodeEffectMode(effectId);
+    await this.writeControlPacket(`EffectMode ${effectId}`, frame);
+
+    if (speed !== undefined) {
+      const clampedSpeed = Math.max(1, Math.min(100, Math.round(speed)));
+      const hardwareSpeed = Math.round((clampedSpeed / 100) * 255);
+      const speedFrame = SpnetCodec.encodeEffectSpeed(hardwareSpeed);
+      await this.writeControlPacket(`EffectSpeed ${clampedSpeed}%`, speedFrame);
+      this.state.effectSpeed = clampedSpeed;
+    }
+
     this.state.mode = 'effect';
     this.state.effectId = effectId;
-    if (speed !== undefined) {
-      this.state.effectSpeed = Math.max(1, Math.min(100, Math.round(speed)));
-    }
     this.emitStateChange(prev);
     return true;
   }
 
   async setMusicMode(modeId: number, sensitivity?: number): Promise<boolean> {
     const prev = { ...this.state };
+    const frame = SpnetCodec.buildControlFrame(new Uint8Array([0x04, 0x02, modeId & 0xff]));
+    await this.writeControlPacket(`MusicMode ${modeId}`, frame);
+
+    if (sensitivity !== undefined) {
+      const sensByte = Math.max(0, Math.min(255, Math.round((sensitivity / 100) * 255)));
+      const sensFrame = SpnetCodec.buildControlFrame(new Uint8Array([0x04, 0x03, sensByte]));
+      await this.writeControlPacket(`MusicSensitivity ${sensitivity}%`, sensFrame);
+    }
+
     this.state.mode = 'music';
     this.state.effectId = modeId;
     this.emitStateChange(prev);
@@ -306,30 +460,182 @@ export class SP530EWiFiDevice implements ILedDevice {
 
 export class SP530EWiFiAdapter implements ILedAdapter {
   readonly transportName: TransportType = 'wifi-tcp';
+  public dryRun: boolean = false;
   private devices: Map<string, SP530EWiFiDevice> = new Map();
   private discovering: boolean = false;
+  private diagnostics?: DiagnosticsService;
+  private defaultHost: string = '192.168.86.34';
+
+  constructor(defaultHost = '192.168.86.34', diagnostics?: DiagnosticsService) {
+    this.defaultHost = defaultHost;
+    this.diagnostics = diagnostics;
+  }
+
+  setDiagnostics(diag: DiagnosticsService): void {
+    this.diagnostics = diag;
+  }
+
+  setDefaultHost(host: string): void {
+    this.defaultHost = host;
+  }
+
+  private getCandidateIps(): string[] {
+    const candidates = new Set<string>();
+    candidates.add(this.defaultHost);
+
+    // Parse ARP table to discover live IP addresses on current subnet
+    try {
+      const out = cp.execSync('arp -a', { encoding: 'utf8', timeout: 1500 });
+      for (const line of out.split('\n')) {
+        const match = line.trim().match(/^(\d+\.\d+\.\d+\.\d+)\s+/);
+        if (match && match[1]) {
+          const ip = match[1];
+          if (!ip.endsWith('.255') && !ip.startsWith('224.') && !ip.startsWith('239.') && !ip.startsWith('127.')) {
+            candidates.add(ip);
+          }
+        }
+      }
+    } catch {
+      // Fallback to default host
+    }
+
+    return Array.from(candidates);
+  }
+
+  /**
+   * Fast probe testing whether port 8587 responds to SPTECH\0 query.
+   */
+  private probeHost(host: string, port = SPNET_PORT, timeoutMs = 400): Promise<{ ok: boolean; raw?: Uint8Array }> {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(timeoutMs);
+
+      socket.connect(port, host, () => {
+        const query = SpnetCodec.buildQueryFrame();
+        socket.write(query);
+      });
+
+      let buffer = Buffer.alloc(0);
+
+      socket.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (buffer.length >= 13) {
+          const magic = buffer.slice(0, 6).toString('ascii');
+          if (magic === 'SPTECH') {
+            const payloadLen = (buffer[11]! << 8) | buffer[12]!;
+            if (buffer.length >= 13 + payloadLen) {
+              socket.destroy();
+              resolve({ ok: true, raw: new Uint8Array(buffer) });
+              return;
+            }
+          } else {
+            socket.destroy();
+            resolve({ ok: false });
+          }
+        }
+      });
+
+      socket.on('error', () => {
+        socket.destroy();
+        resolve({ ok: false });
+      });
+
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve({ ok: false });
+      });
+    });
+  }
 
   async startDiscovery(onDeviceFound: (device: ILedDevice) => void): Promise<void> {
     this.discovering = true;
+    this.diagnostics?.logScan('START', 'wifi-tcp');
 
-    // Direct check of known discovered hardware IP
-    const defaultHost = '192.168.86.34';
-    if (!this.devices.has(defaultHost)) {
-      const device = new SP530EWiFiDevice(defaultHost);
-      this.devices.set(defaultHost, device);
-      onDeviceFound(device);
-    } else {
-      const dev = this.devices.get(defaultHost)!;
-      onDeviceFound(dev);
+    if (this.dryRun) {
+      const mockDev = this.addDevice(this.defaultHost, SPNET_PORT);
+      mockDev.dryRun = true;
+      mockDev.connectionInfo.state = 'discovered';
+      onDeviceFound(mockDev);
+      this.diagnostics?.logScan('STOP', 'wifi-tcp (dry-run)');
+      return;
     }
+
+    const candidates = this.getCandidateIps();
+    this.diagnostics?.log('info', 'SCAN', `Probing ${candidates.length} candidate network IP addresses for SP530E controllers...`);
+
+    const results = await Promise.all(
+      candidates.map(async (host) => {
+        if (!this.discovering) return null;
+        const res = await this.probeHost(host, SPNET_PORT, 450);
+        return { host, ...res };
+      })
+    );
+
+    let discoveredCount = 0;
+    for (const r of results) {
+      if (!r) continue;
+      if (r.ok && r.raw) {
+        discoveredCount++;
+        let dev = this.devices.get(r.host);
+        if (!dev) {
+          dev = new SP530EWiFiDevice(r.host, SPNET_PORT, `SP530E Controller (${r.host})`, {
+            dryRun: this.dryRun,
+            diagnostics: this.diagnostics,
+          });
+          this.devices.set(r.host, dev);
+        }
+
+        try {
+          const parsed = SpnetCodec.decodeResponse(r.raw);
+          dev.state = { ...dev.state, ...parsed.state };
+          dev.capabilities.maxTotalPixels = parsed.config.pixelCount;
+          dev.capabilities.maxPixelCount = parsed.config.pixelCount;
+          dev.capabilities.firmwareInfo = {
+            version: parsed.config.firmwareVersion,
+            model: 'SP530E',
+            ip: r.host,
+          };
+        } catch {}
+
+        dev.connectionInfo.state = 'discovered';
+        dev.connectionInfo.connected = false;
+        dev.connectionInfo.lastSeen = Date.now();
+
+        this.diagnostics?.logDeviceDiscovered({
+          id: dev.id,
+          name: dev.name,
+          transport: 'wifi-tcp',
+          address: dev.connectionInfo.address,
+        });
+
+        onDeviceFound(dev);
+      } else {
+        // If device was previously in cache but didn't respond, mark unavailable
+        const existing = this.devices.get(r.host);
+        if (existing && existing.connectionInfo.state !== 'connected') {
+          existing.connectionInfo.state = 'unavailable';
+          this.diagnostics?.logDeviceUpdated({
+            id: existing.id,
+            state: 'unavailable',
+            lastSeen: Date.now(),
+          });
+        }
+      }
+    }
+
+    this.diagnostics?.logScan('STOP', 'wifi-tcp', { discoveredCount });
+    this.discovering = false;
   }
 
   async stopDiscovery(): Promise<void> {
     this.discovering = false;
+    this.diagnostics?.logScan('STOP', 'wifi-tcp');
   }
 
   getConnectedDevices(): ILedDevice[] {
-    return Array.from(this.devices.values()).filter(d => d.connectionInfo.state === 'connected' || d.connectionInfo.connected);
+    return Array.from(this.devices.values()).filter(
+      (d) => d.connectionInfo.state === 'connected' || d.connectionInfo.connected
+    );
   }
 
   getDiscoveredDevices(): ILedDevice[] {
@@ -339,9 +645,21 @@ export class SP530EWiFiAdapter implements ILedAdapter {
   addDevice(host: string, port: number = SPNET_PORT): SP530EWiFiDevice {
     let device = this.devices.get(host);
     if (!device) {
-      device = new SP530EWiFiDevice(host, port);
+      device = new SP530EWiFiDevice(host, port, `SP530E Controller (${host})`, {
+        dryRun: this.dryRun,
+        diagnostics: this.diagnostics,
+      });
       this.devices.set(host, device);
     }
     return device;
+  }
+
+  removeDevice(host: string): void {
+    const dev = this.devices.get(host);
+    if (dev) {
+      dev.disconnect();
+      this.devices.delete(host);
+      this.diagnostics?.logDeviceRemoved(dev.id, 'Explicit adapter removal');
+    }
   }
 }

@@ -1,8 +1,8 @@
 # Project Progress & Investigation Log
 
 ## Current Status
-- **Current Milestone**: Phase 1 Complete -> Transitioning to Phase 2 (Universal Core HAL & Adapters)
-- **Active Task**: Physical SP530E controller discovered on local network (`192.168.86.34:8587`), wire telemetry handshake completed and decoded (`protocol/fixtures/sp530e_status_response.bin`), preparing Core HAL and Adapter implementation.
+- **Current Milestone**: Phase 6 Complete (Hardware Driver & Discovery Diagnostics & Repair)
+- **Active Task**: All 4 discovery and connection root causes diagnosed and repaired; live physical SP530E controller discovered dynamically via ARP sweep (`192.168.86.34:8587`); all 75 tests passing; portable executable rebuilt and smoke-tested. Awaiting user authorization for live physical command transmission.
 
 ---
 
@@ -53,6 +53,11 @@
 | **EV-011** | 2026-10-27 | BLE Protocol Codec | Clean-room TypeScript encoder/decoder and 8 protocol test fixtures. | `packages/adapters/src/sp530e/sp530e-ble-codec.ts`, `protocol/fixtures/sp530e/` |
 | **EV-012** | 2026-10-27 | Command Registry | Complete multi-transport command registry with confidence levels. | `docs/SP530E_COMMAND_REGISTRY.md` |
 | **EV-013** | 2026-10-27 | Wi-Fi Telemetry & Benchmarks | Verified 49ms TCP handshake, 150ms round-trip query, and 428B live telemetry. | `docs/WIFI_TEST_RESULTS.md`, `tests/protocol/spnet-codec.test.ts` |
+| **EV-014** | 2026-10-27 | Source Code Audit | Confirmed 4 root causes for "gateway" stale display and power-cycle rediscovery failure. | `docs/DISCOVERY_DEBUG_REPORT.md` |
+| **EV-015** | 2026-10-27 | Diagnostic Trace | Verified persistent file logging to `%APPDATA%\LightControl\logs\diagnostic.log`. | `diagnostic.log`, `packages/core/src/diagnostics.ts` |
+| **EV-016** | 2026-10-27 | Dynamic ARP Discovery | Dynamic subnet probe discovers controller at `192.168.86.34:8587` in 407 ms. | `packages/adapters/src/sp530e/sp530e-wifi-adapter.ts` |
+| **EV-017** | 2026-10-27 | Command Wire Transmission | Verified packet encoding for power, brightness (20% cap), and RGB color over TCP. | `docs/SP530E_CONNECTION_DEBUG.md` |
+| **EV-018** | 2026-10-27 | Empirical Test Report | Documented four-status hardware matrix and verification results. | `docs/HARDWARE_TEST_RESULTS.md` |
 
 ---
 
@@ -275,6 +280,25 @@
   - Verified standalone headless launch without installer wizard via `--smoke-test`.
 - **Documentation Deliverables**:
   - `docs/PORTABLE_BUILD.md`: Full architectural reference, rebuild instructions, launch guidelines, SmartScreen workarounds, and troubleshooting.
+
+### Phase 6: Hardware Driver & Discovery Diagnostics & Repair (2026-10-27)
+- **Root Cause Analysis**:
+  - Identified hardcoded fallback device in `DeviceContext.tsx` falsely declaring `connected: true`.
+  - Identified missing wire transmission in `SP530EWiFiDevice` (in-memory state updates only, no socket writes).
+  - Identified inactive `SP530EBleAdapter` in-memory stub disconnected from `Sp530eWindowsBleTransport`.
+  - Identified static discovery restricted to hardcoded IP without dynamic ARP scanning or stale device lifecycle retirement.
+- **Implemented Fixes**:
+  - `packages/core/src/diagnostics.ts`: Added persistent file logging to `%APPDATA%\LightControl\logs\diagnostic.log`, credential redaction, and pipeline event loggers.
+  - `packages/adapters/src/sp530e/sp530e-wifi-adapter.ts`: Added dynamic ARP subnet sweep, TCP port 8587 probing, control packet wire transmission, socket reuse, and 20% safety limit enforcement.
+  - `packages/adapters/src/sp530e/sp530e-ble-adapter.ts`: Integrated Windows BLE transport and fixed notification decoding.
+  - `packages/core/src/device-manager.ts`: Enabled dynamic updates for rediscovered devices and implemented `rescan()` with stale state retirement.
+  - `apps/desktop/src/main/ipc-handlers.ts`: Hooked persistent logging, auto-discovery on launch, and rescan/export IPC.
+  - `apps/desktop/src/renderer/`: Replaced fake fallback with disconnected state, added "Rescan All" button, and color-coded status badges.
+- **Documentation Deliverables**:
+  - `docs/DISCOVERY_DEBUG_REPORT.md`: Comprehensive discovery and root cause audit report.
+  - `docs/SP530E_CONNECTION_DEBUG.md`: Connection lifecycle, socket management, and session recovery documentation.
+  - `docs/HARDWARE_TEST_RESULTS.md`: Empirical test report and four-status hardware matrix.
+  - `docs/FIXES_APPLIED.md`: Detailed file-by-file modification ledger.
 
 ---
 

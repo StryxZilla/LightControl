@@ -15,6 +15,7 @@ interface DeviceContextType {
   isScanning: boolean;
   statusMessage: string | null;
   startDiscovery: () => Promise<void>;
+  rescanDevices: () => Promise<void>;
   stopDiscovery: () => Promise<void>;
   addWledDevice: (host: string, port?: number, name?: string) => Promise<void>;
   connectDevice: (deviceId: string) => Promise<boolean>;
@@ -49,8 +50,8 @@ const INITIAL_FALLBACK_DEVICES: SerializedDevice[] = [
       transport: 'wifi-tcp',
       address: '192.168.86.34:8587',
       name: 'SP530E Controller (Living Room)',
-      state: 'connected',
-      connected: true,
+      state: 'disconnected',
+      connected: false,
       signalStrength: -52,
     },
     capabilities: {
@@ -246,26 +247,68 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setTimeout(() => setStatusMessage(null), 5000);
       });
 
+      const unsubDiscoveredAll = window.api.onDiscoveredAll?.((devs) => {
+        if (devs && devs.length > 0) {
+          setDevices(devs);
+        }
+      });
+
       return () => {
         unsubState();
         unsubErr();
+        unsubDiscoveredAll?.();
       };
     }
   }, []);
 
   const startDiscovery = useCallback(async () => {
     setIsScanning(true);
+    setStatusMessage('Scanning for controllers...');
     if (window.api) {
       try {
         await window.api.startDiscovery();
         const devs = await window.api.getDevices();
         setDevices(devs);
+        setStatusMessage(`Discovered ${devs.length} device(s)`);
+      } catch (err: any) {
+        setStatusMessage(`Discovery error: ${err.message}`);
       } finally {
         setIsScanning(false);
+        setTimeout(() => setStatusMessage(null), 3000);
       }
     } else {
       setTimeout(() => {
         setIsScanning(false);
+        setStatusMessage(null);
+      }, 1000);
+    }
+  }, []);
+
+  const rescanDevices = useCallback(async () => {
+    setIsScanning(true);
+    setStatusMessage('Performing fresh controller rescan...');
+    if (window.api) {
+      try {
+        if (window.api.rescanDevices) {
+          const devs = await window.api.rescanDevices();
+          setDevices(devs);
+          setStatusMessage(`Rescan complete: ${devs.length} controller(s) found`);
+        } else {
+          await window.api.startDiscovery();
+          const devs = await window.api.getDevices();
+          setDevices(devs);
+          setStatusMessage(`Discovered ${devs.length} controller(s)`);
+        }
+      } catch (err: any) {
+        setStatusMessage(`Rescan error: ${err.message}`);
+      } finally {
+        setIsScanning(false);
+        setTimeout(() => setStatusMessage(null), 4000);
+      }
+    } else {
+      setTimeout(() => {
+        setIsScanning(false);
+        setStatusMessage(null);
       }, 1000);
     }
   }, []);
@@ -515,6 +558,7 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isScanning,
         statusMessage,
         startDiscovery,
+        rescanDevices,
         stopDiscovery,
         addWledDevice,
         connectDevice,

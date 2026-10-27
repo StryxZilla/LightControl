@@ -18,11 +18,15 @@ import {
   SP530E_MODEL_ID,
 } from './sp530e-ble-codec.ts';
 import { SP530E_DEFAULT_EFFECTS } from './sp530e-wifi-adapter.ts';
+import type { Sp530eWindowsBleTransport } from './sp530e-windows-ble-transport.ts';
+import type { DiagnosticsService } from '../../../core/src/diagnostics.ts';
 
 export interface BleDeviceOptions {
   name?: string;
   dryRun?: boolean;
   rssi?: number;
+  transport?: Sp530eWindowsBleTransport;
+  diagnostics?: DiagnosticsService;
 }
 
 export class SP530EBleDevice implements ILedDevice {
@@ -36,6 +40,8 @@ export class SP530EBleDevice implements ILedDevice {
   public dryRun: boolean;
   public lastEncodedFrame: Uint8Array | null = null;
 
+  private transport?: Sp530eWindowsBleTransport;
+  private diagnostics?: DiagnosticsService;
   private stateListeners = new Set<(event: DeviceStateChangeEvent) => void>();
   private errorListeners = new Set<(event: DeviceErrorEvent) => void>();
   private sequenceNumber: number = 0;
@@ -45,6 +51,8 @@ export class SP530EBleDevice implements ILedDevice {
     this.id = `sp530e-ble-${cleanAddress}`;
     this.name = options.name ?? `SP530E (${address})`;
     this.dryRun = options.dryRun ?? true;
+    this.transport = options.transport;
+    this.diagnostics = options.diagnostics;
 
     this.connectionInfo = {
       transport: 'ble',
@@ -96,7 +104,43 @@ export class SP530EBleDevice implements ILedDevice {
     };
   }
 
+  setTransport(transport: Sp530eWindowsBleTransport): void {
+    this.transport = transport;
+  }
+
+  setDiagnostics(diag: DiagnosticsService): void {
+    this.diagnostics = diag;
+  }
+
   async connect(): Promise<boolean> {
+    this.connectionInfo.state = 'connecting';
+    this.diagnostics?.logConnectionAttempt(this.id, 'ble', this.connectionInfo.address);
+
+    if (this.dryRun) {
+      this.connectionInfo.state = 'connected';
+      this.connectionInfo.connected = true;
+      this.connectionInfo.lastConnectedAt = Date.now();
+      this.diagnostics?.logConnectionResult(this.id, true, 'ble (dry-run)');
+      return true;
+    }
+
+    if (this.transport) {
+      try {
+        const ok = await this.transport.connect(this.connectionInfo.address, 5000);
+        this.connectionInfo.state = ok ? 'connected' : 'error';
+        this.connectionInfo.connected = ok;
+        if (ok) this.connectionInfo.lastConnectedAt = Date.now();
+        this.diagnostics?.logConnectionResult(this.id, ok, 'ble');
+        return ok;
+      } catch (err: any) {
+        this.connectionInfo.state = 'error';
+        this.connectionInfo.connected = false;
+        this.diagnostics?.logConnectionResult(this.id, false, 'ble', err.message);
+        this.emitError('ERR_BLE_CONNECT', err.message);
+        throw err;
+      }
+    }
+
     this.connectionInfo.state = 'connected';
     this.connectionInfo.connected = true;
     this.connectionInfo.lastConnectedAt = Date.now();
@@ -104,18 +148,43 @@ export class SP530EBleDevice implements ILedDevice {
   }
 
   async disconnect(): Promise<void> {
+    if (this.transport && !this.dryRun) {
+      try {
+        await this.transport.disconnect();
+      } catch {}
+    }
     this.connectionInfo.state = 'disconnected';
     this.connectionInfo.connected = false;
+    this.diagnostics?.logDisconnect(this.id, 'BLE disconnect requested');
+  }
+
+  private async writeBleFrame(opcodeDesc: string, frame: Uint8Array): Promise<boolean> {
+    this.lastEncodedFrame = frame;
+    const hex = Buffer.from(frame).toString('hex');
+    this.diagnostics?.logCommandEncoded(this.id, opcodeDesc, hex);
+
+    if (this.dryRun) {
+      this.diagnostics?.logCommandTransmitted(this.id, `${opcodeDesc} (DRY-RUN)`, hex, frame.length);
+      return true;
+    }
+
+    if (this.transport) {
+      await this.transport.writeBytes(frame, 3000);
+      this.diagnostics?.logCommandTransmitted(this.id, opcodeDesc, hex, frame.length);
+      return true;
+    }
+
+    return true;
   }
 
   async setPower(on: boolean): Promise<boolean> {
-    if (this.connectionInfo.state !== 'connected') {
+    if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
       this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
       throw new Error(`Device ${this.name} is not connected`);
     }
 
     const frame = Sp530eBleCodec.encodePower(on, this.nextSequence());
-    this.lastEncodedFrame = frame;
+    await this.writeBleFrame(`BLE Power ${on ? 'ON' : 'OFF'}`, frame);
 
     const prev = { ...this.state };
     this.state.power = on;
@@ -124,36 +193,35 @@ export class SP530EBleDevice implements ILedDevice {
   }
 
   async setBrightness(brightness: number): Promise<boolean> {
-    if (this.connectionInfo.state !== 'connected') {
+    if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
       this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
       throw new Error(`Device ${this.name} is not connected`);
     }
 
-    const min = this.capabilities.brightnessRange.min;
-    const max = this.capabilities.brightnessRange.max;
-    const clamped = Math.max(min, Math.min(max, Math.round(brightness)));
-
-    // Scale 0-100% to 0-255 for protocol frame
-    const rawVal = Math.round((clamped / 100) * 255);
-    const frame = Sp530eBleCodec.encodeBrightness(rawVal, this.nextSequence());
-    this.lastEncodedFrame = frame;
-
     const prev = { ...this.state };
+    const min = this.capabilities.brightnessRange.min;
+    const max = this.capabilities.brightnessRange.safetyLimit || this.capabilities.brightnessRange.max;
+    const clamped = Math.max(min, Math.min(max, Math.round(brightness)));
+    const hardwareByte = Math.round((clamped / 100) * 255);
+
+    const frame = Sp530eBleCodec.encodeBrightness(hardwareByte, this.nextSequence());
+    await this.writeBleFrame(`BLE Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame);
+
     this.state.brightness = clamped;
     this.emitStateChange(prev);
     return true;
   }
 
   async setColor(color: LedColor): Promise<boolean> {
-    if (this.connectionInfo.state !== 'connected') {
+    if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
       this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
       throw new Error(`Device ${this.name} is not connected`);
     }
 
-    const frame = Sp530eBleCodec.encodeColor(color.r, color.g, color.b, this.nextSequence());
-    this.lastEncodedFrame = frame;
-
     const prev = { ...this.state };
+    const frame = Sp530eBleCodec.encodeColor(color.r, color.g, color.b, this.nextSequence());
+    await this.writeBleFrame(`BLE Color RGB(${color.r},${color.g},${color.b})`, frame);
+
     this.state.color = { ...color };
     this.state.mode = 'solid';
     this.emitStateChange(prev);
@@ -161,32 +229,32 @@ export class SP530EBleDevice implements ILedDevice {
   }
 
   async setEffect(effectId: number, speed?: number): Promise<boolean> {
-    if (this.connectionInfo.state !== 'connected') {
+    if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
       this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
       throw new Error(`Device ${this.name} is not connected`);
     }
 
-    const frame = Sp530eBleCodec.encodeEffectMode(effectId, this.nextSequence());
-    this.lastEncodedFrame = frame;
-
     const prev = { ...this.state };
+    if (speed !== undefined) {
+      const speedFrame = Sp530eBleCodec.encodeEffectSpeed(speed, this.nextSequence());
+      await this.writeBleFrame(`BLE EffectSpeed ${speed}%`, speedFrame);
+      this.state.effectSpeed = speed;
+    }
+
+    const frame = Sp530eBleCodec.encodeEffectMode(effectId, this.nextSequence());
+    await this.writeBleFrame(`BLE Effect ${effectId}`, frame);
+
     this.state.mode = 'effect';
     this.state.effectId = effectId;
-    if (speed !== undefined) {
-      this.state.effectSpeed = Math.max(1, Math.min(100, Math.round(speed)));
-    }
     this.emitStateChange(prev);
     return true;
   }
 
   async setMusicMode(modeId: number, sensitivity?: number): Promise<boolean> {
-    if (this.connectionInfo.state !== 'connected') {
+    if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
       this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
       throw new Error(`Device ${this.name} is not connected`);
     }
-
-    const frame = Sp530eBleCodec.encodeMusicMode(modeId, this.nextSequence());
-    this.lastEncodedFrame = frame;
 
     const prev = { ...this.state };
     this.state.mode = 'music';
@@ -196,11 +264,6 @@ export class SP530EBleDevice implements ILedDevice {
   }
 
   async setSegments(segments: SegmentConfig[]): Promise<boolean> {
-    if (this.connectionInfo.state !== 'connected') {
-      this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
-      throw new Error(`Device ${this.name} is not connected`);
-    }
-
     const prev = { ...this.state };
     this.state.segments = [...segments];
     this.state.activeSegments = segments.length;
@@ -208,24 +271,21 @@ export class SP530EBleDevice implements ILedDevice {
     return true;
   }
 
-  async refreshState(): Promise<LedState> {
-    return { ...this.state };
-  }
-
-  /**
-   * Ingests a raw BLE notification packet from the controller (characteristic 0xFFE1).
-   */
-  public handleNotification(rawBytes: Uint8Array): void {
-    const parsed = Sp530eBleCodec.decodeNotification(rawBytes);
-    if (parsed) {
-      const prev = { ...this.state };
-      if (parsed.power !== undefined) this.state.power = parsed.power;
-      if (parsed.brightness !== undefined) this.state.brightness = parsed.brightness;
-      if (parsed.color !== undefined) this.state.color = { ...parsed.color };
-      if (parsed.mode !== undefined) this.state.mode = parsed.mode;
-      if (parsed.effectId !== undefined) this.state.effectId = parsed.effectId;
-      if (parsed.effectSpeed !== undefined) this.state.effectSpeed = parsed.effectSpeed;
-      this.emitStateChange(prev);
+  handleNotification(frame: Uint8Array): void {
+    try {
+      const decoded = Sp530eBleCodec.decodeNotification(frame);
+      if (decoded) {
+        const prev = { ...this.state };
+        if (decoded.power !== undefined) this.state.power = decoded.power;
+        if (decoded.brightness !== undefined) this.state.brightness = decoded.brightness;
+        if (decoded.color !== undefined) this.state.color = { ...decoded.color };
+        if (decoded.mode !== undefined) this.state.mode = decoded.mode;
+        if (decoded.effectId !== undefined) this.state.effectId = decoded.effectId;
+        if (decoded.effectSpeed !== undefined) this.state.effectSpeed = decoded.effectSpeed;
+        this.emitStateChange(prev);
+      }
+    } catch (err: any) {
+      this.emitError('ERR_BLE_DECODE', err.message);
     }
   }
 
@@ -275,10 +335,16 @@ export class SP530EBleAdapter implements ILedAdapter {
   public readonly serviceUuid = SP530E_BLE_SERVICE_UUID;
   public readonly characteristicUuid = SP530E_BLE_CHARACTERISTIC_UUID;
 
+  public dryRun: boolean = true;
+  private transport?: Sp530eWindowsBleTransport;
+  private diagnostics?: DiagnosticsService;
   private devices = new Map<string, SP530EBleDevice>();
   private discovering: boolean = false;
 
-  constructor(initialDevices?: SP530EBleDevice[]) {
+  constructor(initialDevices?: SP530EBleDevice[], transport?: Sp530eWindowsBleTransport, diagnostics?: DiagnosticsService) {
+    this.transport = transport;
+    this.diagnostics = diagnostics;
+
     if (initialDevices) {
       for (const d of initialDevices) {
         this.devices.set(d.id, d);
@@ -286,19 +352,71 @@ export class SP530EBleAdapter implements ILedAdapter {
     }
   }
 
+  setTransport(t: Sp530eWindowsBleTransport): void {
+    this.transport = t;
+  }
+
+  setDiagnostics(diag: DiagnosticsService): void {
+    this.diagnostics = diag;
+  }
+
   async startDiscovery(onDeviceFound: (device: ILedDevice) => void): Promise<void> {
     this.discovering = true;
+    this.diagnostics?.logScan('START', 'ble');
+
+    // First yield any registered devices
     for (const dev of this.devices.values()) {
       onDeviceFound(dev);
     }
+
+    if (this.dryRun || !this.transport) {
+      this.diagnostics?.logScan('STOP', 'ble (dry-run/mock)');
+      return;
+    }
+
+    try {
+      const discovered = await this.transport.discover(3000);
+      for (const d of discovered) {
+        if (!this.discovering) break;
+        let dev = this.devices.get(d.id);
+        if (!dev) {
+          dev = new SP530EBleDevice(d.address, {
+            name: d.name,
+            rssi: d.rssi,
+            dryRun: this.dryRun,
+            transport: this.transport,
+            diagnostics: this.diagnostics,
+          });
+          this.devices.set(d.id, dev);
+        }
+        dev.connectionInfo.state = 'discovered';
+        dev.connectionInfo.lastSeen = Date.now();
+        this.diagnostics?.logDeviceDiscovered({
+          id: dev.id,
+          name: dev.name,
+          transport: 'ble',
+          address: dev.connectionInfo.address,
+          rssi: dev.connectionInfo.signalStrength,
+        });
+        onDeviceFound(dev);
+      }
+    } catch (err: any) {
+      this.diagnostics?.log('warn', 'SCAN', `BLE discovery scan failed: ${err.message}`);
+    }
+
+    this.diagnostics?.logScan('STOP', 'ble');
+    this.discovering = false;
   }
 
   async stopDiscovery(): Promise<void> {
     this.discovering = false;
+    this.diagnostics?.logScan('STOP', 'ble');
   }
 
   getConnectedDevices(): ILedDevice[] {
-    return Array.from(this.devices.values()).filter(d => d.connectionInfo.state === 'connected' || d.connectionInfo.connected);
+    return Array.from(this.devices.values()).filter(
+      (d) => d.connectionInfo.state === 'connected' || d.connectionInfo.connected
+    );
   }
 
   getDiscoveredDevices(): ILedDevice[] {
