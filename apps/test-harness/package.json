@@ -1,0 +1,13 @@
+{
+  "name": "@led-controller/test-harness",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Diagnostic test harness & validation CLI for SP530E controller",
+  "main": "cli.ts",
+  "scripts": {
+    "start": "node --experimental-strip-types cli.ts",
+    "dry-run": "node --experimental-strip-types cli.ts --dry-run",
+    "live-wifi": "node --experimental-strip-types cli.ts --transport=wifi --live",
+    "live-ble": "node --experimental-strip-types cli.ts --transport=ble --live"
+  }
+}

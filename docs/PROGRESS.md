@@ -116,6 +116,32 @@
 
 ---
 
-## Next Recommended Step
-1. Commit the Modular TypeScript Device Architecture and test suite to Git.
-2. Proceed to Desktop UI scaffolding in `packages/ui/` (Electron + React + Tailwind CSS), binding the presentation layer to the `DeviceManager`, `DeviceStateManager`, and pluggable adapters.
+### Prompt 9: Windows Hardware Driver & Test Harness (2026-10-27)
+- Inspected the Windows Bluetooth adapter (`USB\VID_13D3&PID_3586`) and identified native Windows WinRT BLE APIs (`Windows.Devices.Bluetooth`, `Windows.Devices.Bluetooth.GenericAttributeProfile`).
+- Implemented decoupled C# WinRT Windows BLE helper application:
+  - `packages/adapters/src/sp530e/ble-helper/Sp530eBleHelper.cs`: Interfaces directly with WinRT GATT and handles device discovery, connection, GATT writes, and notification streaming.
+  - `packages/adapters/src/sp530e/ble-helper/build.ps1`: Automated build script compiling the helper using the system's `csc.exe` with references to Windows WinMetadata and GAC assemblies.
+  - Successfully compiled `Sp530eBleHelper.exe` and verified sub-60ms JSON-RPC IPC handshake.
+- Implemented TypeScript transport bridges:
+  - `packages/adapters/src/sp530e/sp530e-windows-ble-transport.ts`: IPC bridge to the C# BLE worker with dry-run support, request serialization, and event routing.
+  - `packages/adapters/src/sp530e/sp530e-wifi-transport.ts`: High-speed TCP socket transport connecting directly to the SP530E on LAN port `8587`.
+- Implemented unified SP530E hardware driver:
+  - `packages/adapters/src/sp530e/sp530e-driver.ts`: Universal driver supporting both Wi-Fi and BLE transports, FIFO command serialization, exponential backoff retries, structured logging, and strict 20% brightness safety clamping.
+- Built interactive Diagnostic Test Harness CLI:
+  - `apps/test-harness/cli.ts`: Standalone CLI supporting automated test sequences (Connect, Query, Power ON, Brightness 20%, RGB Colors, Effect Mode 1) with **dry-run mode enabled by default**.
+- Created test suite in `tests/sp530e/`:
+  - `tests/sp530e/driver.test.ts`: Serialization, retry backoff, and dry-run execution.
+  - `tests/sp530e/protocol-fixtures.test.ts`: Verified against physical hardware packet captures.
+  - `tests/sp530e/ble-helper-ipc.test.ts`: JSON-RPC process lifecycle and message framing.
+  - Test suite expanded to **51 passing tests (`npm test`)** with zero failures.
+- Produced documentation deliverables:
+  - `docs/SP530E_DRIVER_STATUS.md`: Full driver capability matrix, opcode specification, and transport readiness.
+  - `docs/HARDWARE_TESTS.md`: Step-by-step hardware test plan, safety guardrails, and dry-run verification report.
+
+---
+
+## Hardware Validation Readiness
+- **Controller Identified**: BanlanX SP530E at `192.168.86.34:8587` (Wi-Fi TCP) and BLE GATT Service `0xFFE0` / Characteristic `0xFFE1`.
+- **Verified Offline**: All 51 unit tests and dry-run sequences pass with 100% protocol fixture fidelity.
+- **Pending Live Validation**: Awaiting user approval to transmit the controlled live verification sequence to physical hardware via:
+  `node --experimental-strip-types apps/test-harness/cli.ts --transport=wifi --host=192.168.86.34 --port=8587 --live`

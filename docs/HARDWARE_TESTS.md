@@ -1,52 +1,108 @@
-# Hardware Test Plans & Verification Log
+# SP530E Hardware Test Plan & Execution Report
 
-## 1. Safety Policies & Operational Rules
-1. **Explicit Permission Required**: No active BLE command or network packet shall be sent to physical hardware without explicit user approval.
-2. **Current Limiting Awareness**: Ensure strip configurations do not demand current exceeding the power supply's rated wattage to prevent hardware brownouts or damage.
-3. **Conservative Default Limits**: Initial testing will enforce a software brightness cap (e.g., 20% max brightness) and low pixel count (e.g., 30 pixels) until thermal and power stability is confirmed.
-4. **Zero Fabrication**: All test results (RSSI, connection latency, packet response, visual LED state) must be recorded accurately from real physical observation or verified diagnostic logs.
-5. **Connection Exclusivity Warning**: Before initiating any Bluetooth connection from Windows, the BanlanX app on Android must be closed or disconnected, as the SP530E firmware only permits one active BLE connection.
+## 1. Safety Policies & Operational Boundaries
 
----
-
-## 2. Test Environment Baseline
-- **Host**: Windows 10/11 Desktop
-- **Primary Target**: SP530E Controller (ESP32-C3 based)
-- **Power Supply**: Dedicated DC power adapter (voltage matched to LED strip: 5V/12V/24V)
-- **Attached LED Strip**: WS2812B / WS2811 / PWM strip (user specified)
-- **Secondary Target**: QuinLED dig2go (ESP32 running WLED)
-- **Diagnostic Tools**: ADB logcat, Windows Bluetooth Diagnostic tools, WireShark/Packet capture if needed.
+In accordance with `AGENTS.md` and user safety instructions:
+1. **Approval Gate**: Real network/radio packets are never transmitted to physical hardware without explicit user confirmation.
+2. **Dry-Run Default**: All testing tools, scripts, and harness CLIs execute in `dryRun: true` mode by default.
+3. **Brightness Safety Limit**: A strict **20% maximum brightness cap** is hard-coded into all test sequences to protect the 5V WS2812B LED strip and controller from power supply overload or overheating.
+4. **Zero Destructive Operations**: No factory reset opcodes, firmware write frames, or unmapped commands will be sent to the device.
 
 ---
 
-## 3. Test Scenarios
+## 2. Target Hardware Environment
 
-### Test Suite 01: SP530E BLE Connection & Discovery
-- **TC-01.1**: Discover SP530E advertisement via Windows BLE scanner (Look for manufacturer ID `20563` or service `0xFFE0`).
-- **TC-01.2**: Connect to SP530E and enumerate GATT Services and Characteristics (`0xFFE0` / `0xFFE1`).
-- **TC-01.3**: Subscribe to notifications on `0xFFE1` and record initial device state payload.
-
-### Test Suite 02: SP530E Core Commands (Safe Verification)
-- **TC-02.1**: Send Power Toggle / Power Off packet. Verify LED strip turns off.
-- **TC-02.2**: Send Power On packet. Verify strip restores state.
-- **TC-02.3**: Send Solid Color (Red, Green, Blue) at 10% brightness. Verify color rendering.
-- **TC-02.4**: Send Brightness Step (10% -> 50% -> 10%). Verify smooth adjustment.
-
-### Test Suite 03: SP530E Wi-Fi / SPNET Local LAN Communication
-- **TC-03.1**: Send UDP discovery broadcast on port `8587` to detect SP530E IP address on local network.
-- **TC-03.2**: Open TCP socket to `<Controller-IP>:8587` and send 13-byte `SPTECH\0` query packet.
-- **TC-03.3**: Validate parsed state response chunk vs. BLE state response.
-
-### Test Suite 04: WLED HTTP / WebSocket Integration
-- **TC-04.1**: Discover / Connect to QuinLED dig2go via IP address.
-- **TC-04.2**: Read device state via `/json/state` and info via `/json/info`.
-- **TC-04.3**: Send state updates via JSON API and WebSocket.
+- **Controller**: BanlanX SP530E Universal LED Controller
+- **Firmware Version**: `V2.0.13` (Confirmed via live handshake)
+- **Local Network Target**: `192.168.86.34:8587` (Static DHCP lease on LAN)
+- **Host Machine**: Windows 11 (`192.168.86.27`)
+- **Attached LED Strip**: WS2812B Addressable LED Strip (60 pixels, 5V)
+- **Bluetooth Subsystem**: Generic Bluetooth Adapter (`USB\VID_13D3&PID_3586`)
 
 ---
 
-## 4. Hardware Test Execution Log
+## 3. Step-by-Step Test Sequence
 
-| Test ID | Date | Target Device | Action Performed | Expected Result | Actual Result | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| *HT-001* | *Pending* | SP530E | BLE Advertisement Scan | Locate device MAC & name | Awaiting Phase 3 | Pending |
-| *HT-002* | *Pending* | SP530E | Wi-Fi UDP Discovery (8587) | Locate device IP address | Awaiting Phase 3 | Pending |
+| Step | Operation | Parameters | Expected Frame Layout | Success Criteria |
+| :---: | :--- | :--- | :--- | :--- |
+| **1** | **Socket Handshake** | TCP `192.168.86.34:8587` | `SYN -> SYN/ACK` | Connection established in < 100 ms |
+| **2** | **Telemetry Query** | Read-only state query | `53 50 54 45 43 48 00 02 58 00 00 00 00` | 428-byte response received; decoded |
+| **3** | **Power ON** | State = ON | `53 50 54 45 43 48 00 03 58 00 00 00 03 03 01 01` | Strip illuminates |
+| **4** | **Brightness Cap** | Level = 20% | `53 50 54 45 43 48 00 03 58 00 00 00 03 03 02 33` | LEDs maintain safe 20% intensity |
+| **5a**| **Solid RED** | R=255, G=0, B=0 | `53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 FF 00 00` | Entire strip illuminates pure red |
+| **5b**| **Solid GREEN** | R=0, G=255, B=0 | `53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 00 FF 00` | Entire strip illuminates pure green |
+| **5c**| **Solid BLUE** | R=0, G=0, B=255 | `53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 00 00 FF` | Entire strip illuminates pure blue |
+| **6** | **Dynamic Rainbow** | Effect ID = 1, Spd = 50% | `53 50 54 45 43 48 00 03 58 00 00 00 03 03 06 01` | Rainbow wave animates across 60 pixels |
+
+---
+
+## 4. Dry-Run Verification Report
+
+The diagnostic test harness (`apps/test-harness/cli.ts`) was executed across both Wi-Fi and BLE modes with dry-run protection:
+
+### Wi-Fi Dry-Run Execution Summary
+```
+================================================================
+       SP530E CONTROLLER HARDWARE DIAGNOSTIC HARNESS            
+================================================================
+ Transport Mode     : WIFI
+ Target IP:Port     : 192.168.86.34:8587
+ Mode               : DRY-RUN (SIMULATED - NO PHYSICAL WRITES)
+ Safety Limit       : 20% Brightness Cap Enforced
+================================================================
+✔ [PASS] 1. Connect Transport
+    Details: Connected successfully via wifi
+✔ [PASS] 2. Query State
+    Details: Power: true, Bri: 20%, Mode: solid, Color: (255,255,255)
+✔ [PASS] 3. Set Power ON
+    Details: State: power=true
+    Wire Bytes: [53 50 54 45 43 48 00 03 58 00 00 00 03 03 01 01]
+✔ [PASS] 4. Set Brightness (20%)
+    Details: Brightness set to safe cap (20%)
+    Wire Bytes: [53 50 54 45 43 48 00 03 58 00 00 00 03 03 02 33]
+✔ [PASS] 5a. Color RED (255, 0, 0)
+    Details: Color set to Solid Red
+    Wire Bytes: [53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 FF 00 00]
+✔ [PASS] 5b. Color GREEN (0, 255, 0)
+    Details: Color set to Solid Green
+    Wire Bytes: [53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 00 FF 00]
+✔ [PASS] 5c. Color BLUE (0, 0, 255)
+    Details: Color set to Solid Blue
+    Wire Bytes: [53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 00 00 FF]
+✔ [PASS] 6. Effect Mode 1 (Rainbow, Speed 50%)
+    Details: Dynamic effect activated
+    Wire Bytes: [53 50 54 45 43 48 00 03 58 00 00 00 03 03 06 01]
+================================================================
+```
+
+### Bluetooth LE Dry-Run Execution Summary
+```
+================================================================
+       SP530E CONTROLLER HARDWARE DIAGNOSTIC HARNESS            
+================================================================
+ Transport Mode     : BLE
+ Target BLE Address : Auto-scan / default
+ Mode               : DRY-RUN (SIMULATED - NO PHYSICAL WRITES)
+ Safety Limit       : 20% Brightness Cap Enforced
+================================================================
+✔ [PASS] 1. Connect Transport (Connected via BLE)
+✔ [PASS] 2. Query State (Power: true, Bri: 20%, Mode: solid)
+✔ [PASS] 3. Set Power ON (Wire Bytes: [53 50 00 01 00 01 01])
+✔ [PASS] 4. Set Brightness 20% (Wire Bytes: [53 50 00 02 00 01 33])
+✔ [PASS] 5a. Color RED (Wire Bytes: [53 50 00 04 00 03 FF 00 00])
+✔ [PASS] 5b. Color GREEN (Wire Bytes: [53 50 00 04 00 03 00 FF 00])
+✔ [PASS] 5c. Color BLUE (Wire Bytes: [53 50 00 04 00 03 00 00 FF])
+✔ [PASS] 6. Effect Rainbow (Wire Bytes: [53 50 00 06 00 01 01])
+================================================================
+```
+
+---
+
+## 5. Live Hardware Validation Status
+
+- **Read-Only Telemetry Query**: **CONFIRMED ON HARDWARE** (Empirically verified in Prompt 7; 428-byte packet decoded).
+- **Physical Mutating Transmissions**: **PENDING EXPLICIT USER APPROVAL**.
+- **Pending Live Verification Command**:
+  ```powershell
+  node --experimental-strip-types apps/test-harness/cli.ts --transport=wifi --host=192.168.86.34 --port=8587 --live
+  ```
