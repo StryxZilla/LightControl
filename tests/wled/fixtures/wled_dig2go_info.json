@@ -1,0 +1,38 @@
+{
+  "ver": "0.14.1",
+  "vid": 2312150,
+  "leds": {
+    "count": 300,
+    "pwr": 1200,
+    "fps": 42,
+    "maxpwr": 3000,
+    "maxseg": 16,
+    "actseg": 1,
+    "seglock": false,
+    "cct": false,
+    "wv": false,
+    "rgbw": false,
+    "pin": [16]
+  },
+  "str": false,
+  "name": "QuinLED dig2go Living Room",
+  "udpport": 21324,
+  "live": false,
+  "fxcount": 184,
+  "palcount": 71,
+  "arch": "esp32",
+  "core": "v4.4.4",
+  "freeheap": 142000,
+  "uptime": 18420,
+  "opt": 0,
+  "brand": "QuinLED",
+  "product": "dig2go",
+  "btype": "soundreactive",
+  "mac": "a4:cf:12:ef:90:12",
+  "ip": "192.168.86.50",
+  "fs": {
+    "u": 48,
+    "t": 1024,
+    "pmt": 1700000000
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "0": {},
+  "1": {
+    "n": "Warm Glow (20% Safe)",
+    "on": true,
+    "bri": 51,
+    "transition": 7,
+    "mainseg": 0,
+    "seg": [
+      {
+        "id": 0,
+        "start": 0,
+        "stop": 300,
+        "col": [[255, 180, 60], [0, 0, 0], [0, 0, 0]],
+        "fx": 0,
+        "sx": 128,
+        "ix": 128,
+        "pal": 0
+      }
+    ]
+  },
+  "2": {
+    "n": "Rainbow Flow",
+    "on": true,
+    "bri": 51,
+    "transition": 7,
+    "mainseg": 0,
+    "seg": [
+      {
+        "id": 0,
+        "start": 0,
+        "stop": 300,
+        "col": [[255, 0, 0], [0, 255, 0], [0, 0, 255]],
+        "fx": 9,
+        "sx": 191,
+        "ix": 204,
+        "pal": 6
+      }
+    ]
+  },
+  "3": {
+    "n": "Dig2Go Sound Reactive",
+    "on": true,
+    "bri": 51,
+    "transition": 5,
+    "mainseg": 0,
+    "seg": [
+      {
+        "id": 0,
+        "start": 0,
+        "stop": 300,
+        "col": [[0, 255, 255], [255, 0, 128], [0, 0, 0]],
+        "fx": 80,
+        "sx": 200,
+        "ix": 220,
+        "pal": 11
+      }
+    ]
+  }
+}
