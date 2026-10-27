@@ -51,7 +51,9 @@
 1. Download **`LightControl-Portable.exe`** from the [Latest Release](https://github.com/StryxZilla/LightControl/releases).
 2. Double-click to launch (no installer needed).
 3. If Windows SmartScreen appears (*"Windows protected your PC"*), click **More info** ➔ **Run anyway**.
-4. In the **Device Connection** tab, enter your SP530E controller's IP address (e.g. `192.168.1.50`) and click **Connect**, or enter your WLED / dig2go address.
+4. In the **Device Connection** tab (`Ctrl+2`), enter your controller's IP address and connect (see the [Device Pairing Guide](docs/PAIRING_GUIDE.md) for full instructions).
+
+For detailed step-by-step pairing instructions for BanlanX SP530E (Wi-Fi & BLE) and QuinLED dig2go/WLED, refer to **[`docs/PAIRING_GUIDE.md`](docs/PAIRING_GUIDE.md)**.
 
 ---
 
@@ -117,6 +119,7 @@ npm run package:portable
 
 ## 📚 Documentation Index
 
+- **[`docs/PAIRING_GUIDE.md`](docs/PAIRING_GUIDE.md)** — **Step-by-step controller pairing & connection guide for SP530E & WLED/dig2go.**
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Comprehensive HAL architecture, data flow, and IPC design.
 - [`docs/PORTABLE_BUILD.md`](docs/PORTABLE_BUILD.md) — Portable build guide, electron-builder configuration, and troubleshooting.
 - [`docs/SP530E_WIFI_PROTOCOL.md`](docs/SP530E_WIFI_PROTOCOL.md) — Clean-room reverse engineering specification for SP530E TCP 8587 protocol.
