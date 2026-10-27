@@ -52,26 +52,31 @@
 | **EV-010** | 2026-10-27 | Asset Hierarchy | Decompiled Flutter AssetManifest correlating SP530E/SP630E UI components. | `AssetManifest.json`, `packages/sp630e/` |
 | **EV-011** | 2026-10-27 | BLE Protocol Codec | Clean-room TypeScript encoder/decoder and 8 protocol test fixtures. | `packages/adapters/src/sp530e/sp530e-ble-codec.ts`, `protocol/fixtures/sp530e/` |
 | **EV-012** | 2026-10-27 | Command Registry | Complete multi-transport command registry with confidence levels. | `docs/SP530E_COMMAND_REGISTRY.md` |
+| **EV-013** | 2026-10-27 | Wi-Fi Telemetry & Benchmarks | Verified 49ms TCP handshake, 150ms round-trip query, and 428B live telemetry. | `docs/WIFI_TEST_RESULTS.md`, `tests/protocol/spnet-codec.test.ts` |
 
 ---
 
 ## Chronological Progress Log
 
-### Prompt 6: SP530E Bluetooth LE Protocol Recovery & Verification (2026-10-27)
-- Recovered GATT Service `0000ffe0-0000-1000-8000-00805f9b34fb` (`0xFFE0`) and Characteristic `0000ffe1-0000-1000-8000-00805f9b34fb` (`0xFFE1`).
-- Identified 6-byte BLE frame header structure (`[0x53, 0x50]` Magic + `Seq` + `Opcode` + `Length16` Big-Endian).
-- Implemented independent clean-room TypeScript codec: `packages/adapters/src/sp530e/sp530e-ble-codec.ts` with power, brightness (20% safety limit), RGB color, CCT, effect mode, speed, direction, and query state encoders/decoders.
-- Created 8 protocol fixtures in `protocol/fixtures/sp530e/` (`power_on.json`, `power_off.json`, `set_brightness_20pct.json`, `set_color_red.json`, `set_color_green.json`, `set_color_blue.json`, `set_effect_rainbow.json`, `query_status.json`).
-- Wrote and passed 8 automated protocol unit tests in `tests/sp530e-ble-codec.test.ts` (bringing test suite total to 20/20 passing tests in 78 ms).
-- Evaluated physical Android capture feasibility: confirmed QEMU BLE virtualization boundary; formulated 6-step minimal physical HCI snoop plan in `docs/BLE_VERIFICATION_GAPS.md`.
-- Produced comprehensive documentation:
-  - `docs/SP530E_BLE_PROTOCOL.md`: Complete BLE specification, GATT profile, framing, and Wi-Fi comparison.
-  - `docs/SP530E_COMMAND_REGISTRY.md`: Structured command registry with opcodes, parameters, confidence levels.
-  - `docs/BLE_VERIFICATION_GAPS.md`: Verification ledger distinguishing confirmed vs. pending live hardware validation.
+### Prompt 7: Local Wi-Fi Protocol Deep Dive & Empirical Benchmarks (2026-10-27)
+- Executed safe, read-only Wi-Fi discovery and telemetry query against live physical hardware (`192.168.86.34:8587`).
+- Verified empirical network benchmarks:
+  - TCP socket connect latency: **49 ms**.
+  - Read-only query round-trip: **150 ms**.
+  - Packet integrity: 100% (428 bytes received and decoded).
+  - Telemetry: Firmware `V2.0.13`, WS2812B IC (`0x86`), 60 pixels, Power ON, Brightness 100/255, Effect Mode 3, Color (1, 255, 255).
+- Confirmed zero cloud dependency and unauthenticated local LAN binary protocol (`SPNET` on TCP 8587).
+- Extended `SpnetCodec` with control frame encoders for Power, Brightness (20% safety limit), RGB Color, Effect Mode, Speed, and Direction.
+- Added comprehensive unit tests in `tests/protocol/spnet-codec.test.ts` (suite total: 21/21 passing tests in 91 ms).
+- Evaluated transport comparison: Formulated definitive recommendation to use **Local Wi-Fi (`SPNET`) as the primary desktop transport** (bypassing the BLE single-client lockout and providing multi-client support with sub-50ms responsiveness), while retaining BLE as secondary fallback.
+- Produced specifications:
+  - `docs/SP530E_WIFI_PROTOCOL.md`: Complete local Wi-Fi protocol specification, header framing, and chunk formats.
+  - `docs/SP530E_TRANSPORT_COMPARISON.md`: Side-by-side technical comparison and empirical benchmark ledger.
+  - `docs/WIFI_TEST_RESULTS.md`: Empirical test report and latency benchmarks.
 
 ---
 
 ## Next Recommended Step
-1. Commit Prompt 6 deliverables to Git repository.
-2. Request user approval before executing any live Windows BLE or Wi-Fi command transmission to physical controller (Rule 3).
-3. Proceed to scaffolding the desktop UI components (`packages/ui/`) in React and connecting both `SP530EWiFiAdapter` and `MockAdapter`.
+1. Commit Prompt 7 deliverables to Git repository.
+2. Proceed to scaffolding the desktop UI application (`packages/ui/`) in React with modern design, responsive controls (HSV color wheel, brightness slider with 20% limit, effect selector, preset slots), and adapter switching (`SP530EWiFiAdapter`, `MockAdapter`).
+3. Connect UI components to live hardware adapter for interactive end-to-end control.

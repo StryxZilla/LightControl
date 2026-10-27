@@ -48,6 +48,77 @@ export class SpnetCodec {
   }
 
   /**
+   * Builds an SPNET control frame with the 13-byte header + payload.
+   * Header: "SPTECH\0" + MessageType (0x03) + Key (0x58) + 0x00 0x00 + 16-bit PayloadLength.
+   */
+  static buildControlFrame(payload: Uint8Array, key = 0x58): Uint8Array {
+    const frame = new Uint8Array(13 + payload.length);
+    frame.set(SPTECH_MAGIC, 0); // 0..6
+    frame[7] = 0x03; // Message Type: Set State
+    frame[8] = key & 0xff; // Session key
+    frame[9] = 0x00; // Total Packets
+    frame[10] = 0x00; // Packet Index
+    frame[11] = (payload.length >> 8) & 0xff; // Length High
+    frame[12] = payload.length & 0xff; // Length Low
+    frame.set(payload, 13);
+    return frame;
+  }
+
+  /**
+   * Encodes a Power ON/OFF command over Wi-Fi.
+   * Payload: [0x03, 0x01, state]
+   */
+  static encodePower(on: boolean): Uint8Array {
+    return this.buildControlFrame(new Uint8Array([0x03, 0x01, on ? 0x01 : 0x00]));
+  }
+
+  /**
+   * Encodes a Brightness level (0-255) command over Wi-Fi.
+   * Payload: [0x03, 0x02, brightness]
+   */
+  static encodeBrightness(brightness: number): Uint8Array {
+    const clamped = Math.max(0, Math.min(255, Math.round(brightness)));
+    return this.buildControlFrame(new Uint8Array([0x03, 0x02, clamped]));
+  }
+
+  /**
+   * Encodes an RGB Color command over Wi-Fi.
+   * Payload: [0x03, 0x04, R, G, B]
+   */
+  static encodeColor(r: number, g: number, b: number): Uint8Array {
+    const red = Math.max(0, Math.min(255, Math.round(r)));
+    const green = Math.max(0, Math.min(255, Math.round(g)));
+    const blue = Math.max(0, Math.min(255, Math.round(b)));
+    return this.buildControlFrame(new Uint8Array([0x03, 0x04, red, green, blue]));
+  }
+
+  /**
+   * Encodes a Dynamic Effect mode selection command over Wi-Fi.
+   * Payload: [0x03, 0x06, modeId]
+   */
+  static encodeEffectMode(modeId: number): Uint8Array {
+    const id = Math.max(1, Math.min(255, Math.round(modeId)));
+    return this.buildControlFrame(new Uint8Array([0x03, 0x06, id]));
+  }
+
+  /**
+   * Encodes an Effect Speed (0-255) command over Wi-Fi.
+   * Payload: [0x03, 0x07, speed]
+   */
+  static encodeEffectSpeed(speed: number): Uint8Array {
+    const s = Math.max(0, Math.min(255, Math.round(speed)));
+    return this.buildControlFrame(new Uint8Array([0x03, 0x07, s]));
+  }
+
+  /**
+   * Encodes an Effect Direction command over Wi-Fi.
+   * Payload: [0x03, 0x08, dir] (0 = Forward / Left, 1 = Reverse / Right)
+   */
+  static encodeEffectDirection(reverse: boolean): Uint8Array {
+    return this.buildControlFrame(new Uint8Array([0x03, 0x08, reverse ? 0x01 : 0x00]));
+  }
+
+  /**
    * Validates and decodes the 13-byte SPNET header.
    */
   static decodeHeader(buffer: Uint8Array): SpnetHeader {
