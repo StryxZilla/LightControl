@@ -48,19 +48,28 @@
 | **EV-006** | 2026-10-27 | Official Docs | WLED JSON API and WebSocket specifications verified. | `docs/WLED_RESEARCH.md` |
 | **EV-007** | 2026-10-27 | Subnet Scan | Located live SP530E controller at `192.168.86.34:8587`. | Network sweep |
 | **EV-008** | 2026-10-27 | Live Wire Capture | Transmitted state query, received 428 bytes live telemetry. | `protocol/fixtures/sp530e_status_response.bin` |
+| **EV-009** | 2026-10-27 | Dynamic ADB Telemetry | Automated UI navigation & hierarchy extraction across 15+ screens. | `research/screenshots/` (28 PNGs + XMLs) |
+| **EV-010** | 2026-10-27 | Asset Hierarchy | Decompiled Flutter AssetManifest correlating SP530E/SP630E UI components. | `AssetManifest.json`, `packages/sp630e/` |
+
+---
+
+## Chronological Progress Log
+
+### Prompt 5: Dynamic Android UI & Behavioral Analysis via ADB (2026-10-27)
+- Systematically automated `emulator-5554` with explicit serial targeting across 15+ application screens.
+- Captured high-resolution screenshots and UIAutomator XML accessibility hierarchies (`research/screenshots/01_*.png` to `28_*.png`).
+- Traversed Home (Devices/Groups), Quick Add menu, Device Catalog, Wi-Fi Controller models, Model Search (`SP530E`), Group Wizard (homogeneous type restriction), Me profile, Settings (Auto Connect, 12 locales, About), Third-Party Voice Services, FAQ, and Product Manuals.
+- Correlated BanlanX shared UI package `packages/sp630e/` to physical SP530E 5-in-1 modality (WS2812B active profile, 142 dynamic effects, 8 strip music modes, 9 matrix music modes, onboard microphone gain).
+- Produced comprehensive specifications:
+  - `docs/ANDROID_UI_MAP.md`: Global Mermaid flowchart, screen-by-screen hierarchy, bounds, and widget trees.
+  - `docs/UI_FEATURE_MATRIX.md`: Mapping of visible UI controls to SP530E hardware registers and Windows targets.
+  - `docs/UI_TO_PROTOCOL_MAP.md`: Direct mapping from UI gestures to Dart AOT methods, opcodes, and 13-byte SPNET framing.
+  - `docs/EMULATOR_LIMITATIONS.md`: Formal documentation of QEMU BLE and NAT multicast constraints vs native Windows advantages.
 
 ---
 
 ## Next Recommended Step
-1. Commit updated protocol findings and progress log to Git.
-2. Initialize root `package.json` with npm workspaces (`packages/*`, `apps/*`).
-3. Implement `packages/core` (HAL interfaces, types, state management).
-4. Implement `packages/adapters/src/sp530e` (`SpnetProtocol` codec + `SP530EWiFiAdapter`).
-5. Implement `packages/adapters/src/mock` (`MockAdapter`).
-6. Run automated unit tests verifying decoding of `sp530e_status_response.bin`.
-
-### Prompt 4 Verification & Emulator Readiness Audit (2026-10-27)
-- Verified `emulator-5554` online with `com.spled.scenex` v3.3.5 installed.
-- Tested ADB screenshot capture (`screencap -p`) and UI inspection (`uiautomator dump`) successfully.
-- Verified all 12 automated unit and protocol tests passing in 77ms.
-- All dependencies verified operational with zero blockers. Status: READY FOR PROMPT 5.
+1. Commit Prompt 5 deliverables to Git repository.
+2. Implement desktop UI components (`packages/ui/`) using React and Tailwind/CSS, mirroring BanlanX functionality with improved desktop ergonomics (keyboard shortcuts, preset slots, responsive layout).
+3. Connect desktop UI to `@led-controller/adapters` (`MockAdapter` and `SP530EWiFiAdapter`).
+4. Execute safe live hardware verification against user's physical SP530E controller at `192.168.86.34:8587` with strict 20% brightness safety limit.
