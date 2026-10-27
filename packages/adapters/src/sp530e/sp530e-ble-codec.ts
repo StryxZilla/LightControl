@@ -98,6 +98,10 @@ export class Sp530eBleCodec {
     return this.buildFrame(Sp530eBleOpcode.WHITE_BRIGHTNESS, new Uint8Array([clamped]), sequence);
   }
 
+  public static encodeMusicMode(modeId: number, sequence = 0x00): Uint8Array {
+    return this.buildFrame(Sp530eBleOpcode.MUSIC_MODE, new Uint8Array([modeId & 0xff]), sequence);
+  }
+
   /**
    * Encodes an RGB Color command frame.
    * Frame: 53 50 [seq] 04 00 03 [R] [G] [B]
@@ -230,17 +234,19 @@ export class Sp530eBleCodec {
 
       case Sp530eBleOpcode.COLOR_RGB:
         if (dissection.payload.length >= 3) {
-          const r = dissection.payload[0];
-          const g = dissection.payload[1];
-          const b = dissection.payload[2];
+          const r = dissection.payload[0]!;
+          const g = dissection.payload[1]!;
+          const b = dissection.payload[2]!;
           return {
             color: {
-              mode: 'rgb',
+              r,
+              g,
+              b,
               red: r,
               green: g,
               blue: b,
               hex: rgbToHex({ r, g, b }),
-            },
+            } as any,
           };
         }
         break;
@@ -248,11 +254,8 @@ export class Sp530eBleCodec {
       case Sp530eBleOpcode.EFFECT_MODE:
         if (dissection.payload.length >= 1) {
           return {
-            effect: {
-              id: dissection.payload[0],
-              name: `Effect ${dissection.payload[0]}`,
-              speed: 128,
-            },
+            mode: 'effect',
+            effectId: dissection.payload[0]!,
           };
         }
         break;
@@ -260,11 +263,8 @@ export class Sp530eBleCodec {
       case Sp530eBleOpcode.EFFECT_SPEED:
         if (dissection.payload.length >= 1) {
           return {
-            effect: {
-              id: 1,
-              name: 'Dynamic Mode',
-              speed: dissection.payload[0],
-            },
+            mode: 'effect',
+            effectSpeed: Math.round((dissection.payload[0]! / 255) * 100),
           };
         }
         break;

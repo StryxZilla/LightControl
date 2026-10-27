@@ -9,7 +9,10 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
+    "desktop:dev": "npm --workspace=@led-controller/desktop run dev",
+    "desktop:build": "npm --workspace=@led-controller/desktop run build",
+    "desktop:start": "npm --workspace=@led-controller/desktop run start"
   },
   "author": "Antigravity Autonomous Engineering",
   "license": "MIT"
