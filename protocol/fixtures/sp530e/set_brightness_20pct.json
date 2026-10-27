@@ -1,0 +1,25 @@
+{
+  "name": "Set Brightness (20% Safety Cap)",
+  "model": "SP530E (0x4E)",
+  "transport": "BLE",
+  "serviceUuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
+  "characteristicUuid": "0000ffe1-0000-1000-8000-00805f9b34fb",
+  "writeType": "WRITE_NO_RESPONSE",
+  "hex": "53 50 00 02 00 01 33",
+  "bytes": [83, 80, 0, 2, 0, 1, 51],
+  "dissection": {
+    "magic": "53 50 (ASCII 'SP')",
+    "sequence": "00",
+    "opcode": "02 (Color Brightness Control)",
+    "payloadLength": "00 01 (1 byte)",
+    "payload": {
+      "brightness": "33 (51 decimal = 20%)"
+    }
+  },
+  "equivalentSpnetTcp": {
+    "port": 8587,
+    "hex": "53 50 54 45 43 48 00 03 58 00 00 00 03 03 02 33"
+  },
+  "source": "BanlanX libapp.so setBrightness + UniLED BanlanX_6xx driver",
+  "confidence": "VERIFIED"
+}

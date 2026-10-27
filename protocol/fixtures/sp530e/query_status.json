@@ -1,0 +1,33 @@
+{
+  "name": "Query State & Configuration",
+  "model": "SP530E (0x4E)",
+  "transport": "BLE / Wi-Fi SPNET",
+  "serviceUuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
+  "characteristicUuid": "0000ffe1-0000-1000-8000-00805f9b34fb",
+  "bleQueryHex": "53 50 00 00 00 00",
+  "spnetQueryHex": "53 50 54 45 43 48 00 02 58 00 00 00 00",
+  "expectedResponseFixture": "protocol/fixtures/sp530e_status_response.bin",
+  "verifiedResponseProperties": {
+    "totalLengthBytes": 428,
+    "header": {
+      "magic": "53 50 54 45 43 48 (SPTECH)",
+      "messageType": 2,
+      "payloadLength": 415
+    },
+    "chunk01_hardwareConfig": {
+      "firmwareVersion": "V2.0.13",
+      "lightType": "0x86 (WS2812B SPI Addressable IC)",
+      "colorOrder": "0x02 (GRB)",
+      "pixelCount": 60
+    },
+    "chunk03_runtimeState": {
+      "power": true,
+      "mode": "0x01 (Solid Color)",
+      "brightness": 255,
+      "color": "#FFFFFF",
+      "speed": 128
+    }
+  },
+  "source": "Empirical live hardware wire capture on 192.168.86.34:8587",
+  "confidence": "VERIFIED_HARDWARE"
+}

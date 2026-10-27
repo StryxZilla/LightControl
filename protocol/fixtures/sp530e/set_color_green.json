@@ -1,0 +1,27 @@
+{
+  "name": "Set Color Green (#00FF00)",
+  "model": "SP530E (0x4E)",
+  "transport": "BLE",
+  "serviceUuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
+  "characteristicUuid": "0000ffe1-0000-1000-8000-00805f9b34fb",
+  "writeType": "WRITE_NO_RESPONSE",
+  "hex": "53 50 00 04 00 03 00 ff 00",
+  "bytes": [83, 80, 0, 4, 0, 3, 0, 255, 0],
+  "dissection": {
+    "magic": "53 50 (ASCII 'SP')",
+    "sequence": "00",
+    "opcode": "04 (RGB Color Setting)",
+    "payloadLength": "00 03 (3 bytes)",
+    "payload": {
+      "red": "00 (0)",
+      "green": "FF (255)",
+      "blue": "00 (0)"
+    }
+  },
+  "equivalentSpnetTcp": {
+    "port": 8587,
+    "hex": "53 50 54 45 43 48 00 03 58 00 00 00 05 03 04 00 ff 00"
+  },
+  "source": "BanlanX libapp.so setLfxColor + UniLED SP630E/SP530E protocol handler",
+  "confidence": "VERIFIED"
+}

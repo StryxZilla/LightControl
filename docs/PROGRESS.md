@@ -50,26 +50,28 @@
 | **EV-008** | 2026-10-27 | Live Wire Capture | Transmitted state query, received 428 bytes live telemetry. | `protocol/fixtures/sp530e_status_response.bin` |
 | **EV-009** | 2026-10-27 | Dynamic ADB Telemetry | Automated UI navigation & hierarchy extraction across 15+ screens. | `research/screenshots/` (28 PNGs + XMLs) |
 | **EV-010** | 2026-10-27 | Asset Hierarchy | Decompiled Flutter AssetManifest correlating SP530E/SP630E UI components. | `AssetManifest.json`, `packages/sp630e/` |
+| **EV-011** | 2026-10-27 | BLE Protocol Codec | Clean-room TypeScript encoder/decoder and 8 protocol test fixtures. | `packages/adapters/src/sp530e/sp530e-ble-codec.ts`, `protocol/fixtures/sp530e/` |
+| **EV-012** | 2026-10-27 | Command Registry | Complete multi-transport command registry with confidence levels. | `docs/SP530E_COMMAND_REGISTRY.md` |
 
 ---
 
 ## Chronological Progress Log
 
-### Prompt 5: Dynamic Android UI & Behavioral Analysis via ADB (2026-10-27)
-- Systematically automated `emulator-5554` with explicit serial targeting across 15+ application screens.
-- Captured high-resolution screenshots and UIAutomator XML accessibility hierarchies (`research/screenshots/01_*.png` to `28_*.png`).
-- Traversed Home (Devices/Groups), Quick Add menu, Device Catalog, Wi-Fi Controller models, Model Search (`SP530E`), Group Wizard (homogeneous type restriction), Me profile, Settings (Auto Connect, 12 locales, About), Third-Party Voice Services, FAQ, and Product Manuals.
-- Correlated BanlanX shared UI package `packages/sp630e/` to physical SP530E 5-in-1 modality (WS2812B active profile, 142 dynamic effects, 8 strip music modes, 9 matrix music modes, onboard microphone gain).
-- Produced comprehensive specifications:
-  - `docs/ANDROID_UI_MAP.md`: Global Mermaid flowchart, screen-by-screen hierarchy, bounds, and widget trees.
-  - `docs/UI_FEATURE_MATRIX.md`: Mapping of visible UI controls to SP530E hardware registers and Windows targets.
-  - `docs/UI_TO_PROTOCOL_MAP.md`: Direct mapping from UI gestures to Dart AOT methods, opcodes, and 13-byte SPNET framing.
-  - `docs/EMULATOR_LIMITATIONS.md`: Formal documentation of QEMU BLE and NAT multicast constraints vs native Windows advantages.
+### Prompt 6: SP530E Bluetooth LE Protocol Recovery & Verification (2026-10-27)
+- Recovered GATT Service `0000ffe0-0000-1000-8000-00805f9b34fb` (`0xFFE0`) and Characteristic `0000ffe1-0000-1000-8000-00805f9b34fb` (`0xFFE1`).
+- Identified 6-byte BLE frame header structure (`[0x53, 0x50]` Magic + `Seq` + `Opcode` + `Length16` Big-Endian).
+- Implemented independent clean-room TypeScript codec: `packages/adapters/src/sp530e/sp530e-ble-codec.ts` with power, brightness (20% safety limit), RGB color, CCT, effect mode, speed, direction, and query state encoders/decoders.
+- Created 8 protocol fixtures in `protocol/fixtures/sp530e/` (`power_on.json`, `power_off.json`, `set_brightness_20pct.json`, `set_color_red.json`, `set_color_green.json`, `set_color_blue.json`, `set_effect_rainbow.json`, `query_status.json`).
+- Wrote and passed 8 automated protocol unit tests in `tests/sp530e-ble-codec.test.ts` (bringing test suite total to 20/20 passing tests in 78 ms).
+- Evaluated physical Android capture feasibility: confirmed QEMU BLE virtualization boundary; formulated 6-step minimal physical HCI snoop plan in `docs/BLE_VERIFICATION_GAPS.md`.
+- Produced comprehensive documentation:
+  - `docs/SP530E_BLE_PROTOCOL.md`: Complete BLE specification, GATT profile, framing, and Wi-Fi comparison.
+  - `docs/SP530E_COMMAND_REGISTRY.md`: Structured command registry with opcodes, parameters, confidence levels.
+  - `docs/BLE_VERIFICATION_GAPS.md`: Verification ledger distinguishing confirmed vs. pending live hardware validation.
 
 ---
 
 ## Next Recommended Step
-1. Commit Prompt 5 deliverables to Git repository.
-2. Implement desktop UI components (`packages/ui/`) using React and Tailwind/CSS, mirroring BanlanX functionality with improved desktop ergonomics (keyboard shortcuts, preset slots, responsive layout).
-3. Connect desktop UI to `@led-controller/adapters` (`MockAdapter` and `SP530EWiFiAdapter`).
-4. Execute safe live hardware verification against user's physical SP530E controller at `192.168.86.34:8587` with strict 20% brightness safety limit.
+1. Commit Prompt 6 deliverables to Git repository.
+2. Request user approval before executing any live Windows BLE or Wi-Fi command transmission to physical controller (Rule 3).
+3. Proceed to scaffolding the desktop UI components (`packages/ui/`) in React and connecting both `SP530EWiFiAdapter` and `MockAdapter`.

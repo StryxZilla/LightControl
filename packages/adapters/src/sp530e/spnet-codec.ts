@@ -1,4 +1,4 @@
-import type { LedState, LedColor } from '../../../packages/core/src/types.ts';
+import type { LedState, LedColor } from '../../../core/src/types.ts';
 
 export const SPTECH_MAGIC = new Uint8Array([0x53, 0x50, 0x54, 0x45, 0x43, 0x48, 0x00]); // "SPTECH\0"
 export const SPNET_PORT = 8587;

@@ -1,0 +1,25 @@
+{
+  "name": "Power ON",
+  "model": "SP530E (0x4E)",
+  "transport": "BLE",
+  "serviceUuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
+  "characteristicUuid": "0000ffe1-0000-1000-8000-00805f9b34fb",
+  "writeType": "WRITE_NO_RESPONSE",
+  "hex": "53 50 00 01 00 01 01",
+  "bytes": [83, 80, 0, 1, 0, 1, 1],
+  "dissection": {
+    "magic": "53 50 (ASCII 'SP')",
+    "sequence": "00",
+    "opcode": "01 (Power Control)",
+    "payloadLength": "00 01 (1 byte)",
+    "payload": {
+      "state": "01 (ON)"
+    }
+  },
+  "equivalentSpnetTcp": {
+    "port": 8587,
+    "hex": "53 50 54 45 43 48 00 03 58 00 00 00 03 03 01 01"
+  },
+  "source": "BanlanX decompiled libapp.so setOnOffLfx + UniLED / xydac BLE bridge verification",
+  "confidence": "VERIFIED"
+}

@@ -6,7 +6,7 @@ import type {
   LedState,
   LedColor,
   ConnectionInfo,
-} from '../../../packages/core/src/types.ts';
+} from '../../../core/src/types.ts';
 import { SpnetCodec, SPNET_PORT, type SpnetParsedState } from './spnet-codec.ts';
 
 export class SP530EWiFiDevice implements ILedDevice {
