@@ -36,7 +36,9 @@ interface DeviceContextType {
 
 const DEFAULT_SETTINGS: AppSettings = {
   dryRun: true,
+  enforceSafetyBrightness: true,
   safetyBrightnessLimit: 20,
+  enforceRateLimiting: true,
   autoConnectLastDevice: true,
   theme: 'dark',
   wifiHost: '192.168.86.34',

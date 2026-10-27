@@ -38,6 +38,8 @@ export class SP530EBleDevice implements ILedDevice {
   state: LedState;
 
   public dryRun: boolean;
+  public enforceSafetyLimits: boolean = true;
+  public safetyBrightnessLimit: number = 20;
   public lastEncodedFrame: Uint8Array | null = null;
 
   private transport?: Sp530eWindowsBleTransport;
@@ -110,6 +112,14 @@ export class SP530EBleDevice implements ILedDevice {
 
   setDiagnostics(diag: DiagnosticsService): void {
     this.diagnostics = diag;
+  }
+
+  setSafetyLimits(enforce: boolean, limit = 20): void {
+    for (const dev of this.devices.values()) {
+      dev.enforceSafetyLimits = enforce;
+      dev.safetyBrightnessLimit = limit;
+      dev.capabilities.brightnessRange.safetyLimit = enforce ? limit : 100;
+    }
   }
 
   async connect(): Promise<boolean> {
@@ -200,7 +210,9 @@ export class SP530EBleDevice implements ILedDevice {
 
     const prev = { ...this.state };
     const min = this.capabilities.brightnessRange.min;
-    const max = this.capabilities.brightnessRange.safetyLimit || this.capabilities.brightnessRange.max;
+    const max = this.enforceSafetyLimits
+      ? (this.safetyBrightnessLimit || this.capabilities.brightnessRange.safetyLimit || 20)
+      : this.capabilities.brightnessRange.max;
     const clamped = Math.max(min, Math.min(max, Math.round(brightness)));
     const hardwareByte = Math.round((clamped / 100) * 255);
 
@@ -358,6 +370,14 @@ export class SP530EBleAdapter implements ILedAdapter {
 
   setDiagnostics(diag: DiagnosticsService): void {
     this.diagnostics = diag;
+  }
+
+  setSafetyLimits(enforce: boolean, limit = 20): void {
+    for (const dev of this.devices.values()) {
+      dev.enforceSafetyLimits = enforce;
+      dev.safetyBrightnessLimit = limit;
+      dev.capabilities.brightnessRange.safetyLimit = enforce ? limit : 100;
+    }
   }
 
   async startDiscovery(onDeviceFound: (device: ILedDevice) => void): Promise<void> {

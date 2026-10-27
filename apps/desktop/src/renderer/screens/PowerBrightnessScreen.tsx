@@ -3,7 +3,7 @@ import { useDevice } from '../context/DeviceContext.tsx';
 import { Icon } from '../components/Icon.tsx';
 
 export const PowerBrightnessScreen: React.FC = () => {
-  const { selectedDevice, setPower, setBrightness, settings } = useDevice();
+  const { selectedDevice, setPower, setBrightness, settings, updateSettings } = useDevice();
 
   if (!selectedDevice) {
     return <div className="p-8 text-center text-gray-400">No device selected.</div>;
@@ -11,9 +11,13 @@ export const PowerBrightnessScreen: React.FC = () => {
 
   const isPowerOn = selectedDevice.state.power;
   const currentBrightness = selectedDevice.state.brightness;
-  const safetyCap = selectedDevice.capabilities.brightnessRange.safetyLimit || settings.safetyBrightnessLimit;
+  const isEnforced = settings.enforceSafetyBrightness ?? true;
+  const safetyLimit = settings.safetyBrightnessLimit ?? 20;
+  const effectiveMax = isEnforced ? safetyLimit : 100;
 
-  const quickLevels = [5, 10, 15, safetyCap];
+  const quickLevels = isEnforced
+    ? [5, 10, 15, safetyLimit]
+    : [25, 50, 75, 100];
 
   return (
     <div className="p-8 space-y-8 overflow-y-auto max-h-[calc(100vh-4rem)]">
@@ -21,7 +25,7 @@ export const PowerBrightnessScreen: React.FC = () => {
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-white">Power & Brightness</h2>
         <p className="text-xs text-gray-400 mt-1">
-          Master output toggles and hardware-safe intensity controls for {selectedDevice.name}
+          Master output toggles and configurable intensity controls for {selectedDevice.name}
         </p>
       </div>
 
@@ -53,19 +57,33 @@ export const PowerBrightnessScreen: React.FC = () => {
           </p>
         </div>
 
-        {/* Right Card: Precision Brightness Slider & Safety Cap */}
+        {/* Right Card: Precision Brightness Slider & Configurable Safety Cap */}
         <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-8 space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white">Intensity Control</h3>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-blue-500/10 text-blue-300 border border-blue-500/20">
-              Safety Cap: {safetyCap}%
-            </span>
+            <button
+              onClick={() => updateSettings({ enforceSafetyBrightness: !isEnforced })}
+              title={isEnforced ? 'Click to unlock full 100% brightness range' : 'Click to enforce safe brightness limit'}
+              className={`px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center gap-1.5 transition-all border ${
+                isEnforced
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                  : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+              }`}
+            >
+              <Icon name={isEnforced ? 'alert' : 'check'} className="w-3.5 h-3.5" />
+              <span>{isEnforced ? `Safety Limit: ${safetyLimit}% (Unlock 100%)` : 'Full Range (100% Unlocked)'}</span>
+            </button>
           </div>
 
           {/* Large Percentage Readout */}
           <div className="flex items-baseline gap-2">
             <span className="text-5xl font-black text-white font-mono">{currentBrightness}</span>
             <span className="text-xl text-gray-400 font-mono">%</span>
+            {!isEnforced && currentBrightness > 30 && (
+              <span className="text-xs text-amber-400 font-mono px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 ml-2">
+                High Current Mode
+              </span>
+            )}
           </div>
 
           {/* Slider */}
@@ -73,15 +91,17 @@ export const PowerBrightnessScreen: React.FC = () => {
             <input
               type="range"
               min="0"
-              max={safetyCap}
+              max={effectiveMax}
               value={currentBrightness}
               onChange={(e) => setBrightness(parseInt(e.target.value, 10))}
-              className="w-full h-3 accent-blue-500 cursor-pointer"
+              className={`w-full h-3 cursor-pointer ${isEnforced ? 'accent-amber-500' : 'accent-blue-500'}`}
             />
             <div className="flex justify-between text-[11px] font-mono text-gray-500">
               <span>0% (Off)</span>
-              <span>10%</span>
-              <span className="text-amber-400 font-semibold">{safetyCap}% (Max Safe)</span>
+              <span>{Math.round(effectiveMax / 2)}%</span>
+              <span className={isEnforced ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                {effectiveMax}% {isEnforced ? '(Safety Cap)' : '(Max Output)'}
+              </span>
             </div>
           </div>
 
@@ -98,20 +118,13 @@ export const PowerBrightnessScreen: React.FC = () => {
                   className={`py-2 rounded-md text-xs font-semibold font-mono border transition-all ${
                     currentBrightness === lvl
                       ? 'bg-blue-600 border-blue-500 text-white shadow-sm'
-                      : 'bg-[#0d1117] border-[#30363d] text-gray-300 hover:bg-[#21262d]'
+                      : 'bg-[#0d1117] border-[#30363d] text-gray-300 hover:text-white hover:bg-[#21262d]'
                   }`}
                 >
                   {lvl}%
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Hardware Protection Notice */}
-          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-200/90 leading-relaxed">
-            <span className="font-bold text-amber-300">Thermal Protection Notice:</span> The 20%
-            software limit protects 5V addressable strips from excessive current draw and voltage
-            drop without multi-point power injection.
           </div>
         </div>
       </div>

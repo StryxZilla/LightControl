@@ -44,6 +44,8 @@ export class SP530EWiFiDevice implements ILedDevice {
   state: LedState;
 
   public dryRun: boolean;
+  public enforceSafetyLimits: boolean = true;
+  public safetyBrightnessLimit: number = 20;
   public lastEncodedFrame: Uint8Array | null = null;
 
   private socket: net.Socket | null = null;
@@ -371,7 +373,9 @@ export class SP530EWiFiDevice implements ILedDevice {
   async setBrightness(brightness: number): Promise<boolean> {
     const prev = { ...this.state };
     const min = this.capabilities.brightnessRange.min;
-    const max = this.capabilities.brightnessRange.safetyLimit || this.capabilities.brightnessRange.max;
+    const max = this.enforceSafetyLimits
+      ? (this.safetyBrightnessLimit || this.capabilities.brightnessRange.safetyLimit || 20)
+      : this.capabilities.brightnessRange.max;
     const clamped = Math.max(min, Math.min(max, Math.round(brightness)));
 
     // Scale 0-100% to 0-255 hardware byte
@@ -494,6 +498,14 @@ export class SP530EWiFiAdapter implements ILedAdapter {
 
   setDefaultHost(host: string): void {
     this.defaultHost = host;
+  }
+
+  setSafetyLimits(enforce: boolean, limit = 20): void {
+    for (const dev of this.devices.values()) {
+      dev.enforceSafetyLimits = enforce;
+      dev.safetyBrightnessLimit = limit;
+      dev.capabilities.brightnessRange.safetyLimit = enforce ? limit : 100;
+    }
   }
 
   private getCandidateIps(): string[] {

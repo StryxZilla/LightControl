@@ -22,7 +22,9 @@ export interface SerializedDevice {
 
 export interface AppSettings {
   dryRun: boolean;
+  enforceSafetyBrightness: boolean;
   safetyBrightnessLimit: number;
+  enforceRateLimiting: boolean;
   autoConnectLastDevice: boolean;
   theme: 'dark' | 'light' | 'system';
   wifiHost: string;

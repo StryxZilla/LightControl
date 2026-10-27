@@ -31,7 +31,9 @@ export class AppIpcManager {
 
   private settings: AppSettings = {
     dryRun: true, // Safe default on first run
+    enforceSafetyBrightness: true,
     safetyBrightnessLimit: 20,
+    enforceRateLimiting: true,
     autoConnectLastDevice: true,
     theme: 'dark',
     wifiHost: '192.168.86.34',
@@ -64,6 +66,9 @@ export class AppIpcManager {
     this.deviceManager.registerAdapter(this.wifiAdapter);
     this.deviceManager.registerAdapter(this.bleAdapter);
     this.deviceManager.registerAdapter(this.wledAdapter);
+
+    this.wifiAdapter.setSafetyLimits(this.settings.enforceSafetyBrightness, this.settings.safetyBrightnessLimit);
+    this.bleAdapter.setSafetyLimits(this.settings.enforceSafetyBrightness, this.settings.safetyBrightnessLimit);
 
     this.deviceManager.setDryRun(this.settings.dryRun);
     this.diagnostics.log('info', 'SYSTEM', `Registered adapters: mock, sp530e-wifi, sp530e-ble, wled. LogFile: ${logFilePath}`);
@@ -270,8 +275,13 @@ export class AppIpcManager {
     ipcMain.handle('device:set-brightness', async (_, deviceId: string, brightness: number) => {
       const dev = this.deviceManager.getDevice(deviceId);
       if (!dev) throw new Error(`Device not found: ${deviceId}`);
-      const clamped = Math.min(brightness, this.settings.safetyBrightnessLimit);
-      return this.deviceManager.getRateLimiter().execute(deviceId, () => dev.setBrightness(clamped));
+      const maxBrightness = this.settings.enforceSafetyBrightness ? this.settings.safetyBrightnessLimit : 100;
+      const clamped = Math.min(brightness, maxBrightness);
+      if (this.settings.enforceRateLimiting) {
+        return this.deviceManager.getRateLimiter().execute(deviceId, () => dev.setBrightness(clamped));
+      } else {
+        return dev.setBrightness(clamped);
+      }
     });
 
     ipcMain.handle('device:set-color', async (_, deviceId: string, color: LedColor) => {
@@ -353,11 +363,17 @@ export class AppIpcManager {
       if (newSettings.wifiHost) {
         this.wifiAdapter.setDefaultHost(newSettings.wifiHost);
       }
+      if (newSettings.enforceSafetyBrightness !== undefined || newSettings.safetyBrightnessLimit !== undefined) {
+        const enforce = newSettings.enforceSafetyBrightness ?? this.settings.enforceSafetyBrightness;
+        const limit = newSettings.safetyBrightnessLimit ?? this.settings.safetyBrightnessLimit;
+        this.wifiAdapter.setSafetyLimits(enforce, limit);
+        this.bleAdapter.setSafetyLimits(enforce, limit);
+      }
       this.saveSettings();
       this.diagnostics.log(
         'info',
         'SETTINGS',
-        `Updated settings: dryRun=${this.settings.dryRun}, safetyLimit=${this.settings.safetyBrightnessLimit}%`
+        `Updated settings: dryRun=${this.settings.dryRun}, enforceSafety=${this.settings.enforceSafetyBrightness}, safetyLimit=${this.settings.safetyBrightnessLimit}%, rateLimiting=${this.settings.enforceRateLimiting}`
       );
       return { ...this.settings };
     });

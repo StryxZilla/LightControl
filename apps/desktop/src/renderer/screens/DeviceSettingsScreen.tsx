@@ -13,6 +13,8 @@ export const DeviceSettingsScreen: React.FC = () => {
     testConnection,
     updateDeviceConfig,
     isScanning,
+    settings,
+    updateSettings,
   } = useDevice();
 
   if (!selectedDevice) {
@@ -271,6 +273,33 @@ export const DeviceSettingsScreen: React.FC = () => {
               <span className="text-gray-400">Active Endpoint:</span>
               <span>{host}:{port}</span>
             </div>
+          </div>
+
+          {/* Hardware Safety Clamping Switch */}
+          <div className="flex items-center justify-between p-3 bg-[#0d1117] border border-[#30363d] rounded-lg">
+            <div>
+              <div className="text-xs font-semibold text-white flex items-center gap-2">
+                <span>Brightness Safety Clamping</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${settings.enforceSafetyBrightness !== false ? 'text-amber-300 bg-amber-500/15' : 'text-emerald-300 bg-emerald-500/15'}`}>
+                  {settings.enforceSafetyBrightness !== false ? `Capped at ${settings.safetyBrightnessLimit}%` : 'Full 100% Unlocked'}
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-400">
+                {settings.enforceSafetyBrightness !== false ? 'Restricts maximum brightness to protect LEDs and power supply' : 'Unrestricted full output mode (up to 100%)'}
+              </div>
+            </div>
+            <button
+              onClick={() => updateSettings({ enforceSafetyBrightness: !(settings.enforceSafetyBrightness ?? true) })}
+              className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${
+                settings.enforceSafetyBrightness !== false ? 'bg-amber-500' : 'bg-gray-700'
+              }`}
+            >
+              <div
+                className={`w-3.5 h-3.5 rounded-full bg-white transition-transform absolute top-0.5 ${
+                  settings.enforceSafetyBrightness !== false ? 'left-5' : 'left-1'
+                }`}
+              />
+            </button>
           </div>
 
           {/* Test Connection Button & Result */}
