@@ -1,8 +1,8 @@
 # Project Progress & Investigation Log
 
 ## Current Status
-- **Current Milestone**: Phase 7 Complete (Device Configuration & Socket Timeout Lifecycle Repair)
-- **Active Task**: Fixed 4-second socket idle timeout drop (`socket.setTimeout(0)` + TCP keepalive); built comprehensive Device Configuration Screen with separated Connection & LED output configuration; verified non-destructive TCP socket telemetry on `192.168.86.34:8587`; rebuilt portable executable. Awaiting user approval for physical LED state changes.
+- **Current Milestone**: Phase 10 Complete (BLE Direct Hardware Control & ESP32-C3 Protocol Architecture)
+- **Active Task**: Identified transport role separation (Wi-Fi TCP port 8587 telemetry sync vs BLE GATT write sink); resolved ESP32-C3 Random static MAC addressing in Windows WinRT; implemented `WriteWithoutResponse`; packaged and published release `v0.4.0`.
 
 ---
 

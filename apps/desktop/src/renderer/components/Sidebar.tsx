@@ -60,7 +60,7 @@ export const Sidebar: React.FC = () => {
         </div>
         <div>
           <h1 className="text-sm font-semibold tracking-wide text-white">Universal LED</h1>
-          <p className="text-[11px] text-gray-400 font-mono">v0.3.0 • Windows 10/11</p>
+          <p className="text-[11px] text-gray-400 font-mono">v0.4.0 • Windows 10/11</p>
         </div>
       </div>
 
