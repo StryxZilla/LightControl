@@ -35,7 +35,7 @@ interface DeviceContextType {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  dryRun: true,
+  dryRun: false,
   enforceSafetyBrightness: true,
   safetyBrightnessLimit: 20,
   enforceRateLimiting: true,

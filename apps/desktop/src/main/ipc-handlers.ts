@@ -30,7 +30,7 @@ export class AppIpcManager {
   private wledAdapter: WledAdapter;
 
   private settings: AppSettings = {
-    dryRun: true, // Safe default on first run
+    dryRun: false, // Live hardware transmission active by default
     enforceSafetyBrightness: true,
     safetyBrightnessLimit: 20,
     enforceRateLimiting: true,

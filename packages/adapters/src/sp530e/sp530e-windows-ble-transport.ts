@@ -194,9 +194,10 @@ export class Sp530eWindowsBleTransport implements ISp530eTransport {
     if (res?.devices && Array.isArray(res.devices)) {
       for (const d of res.devices) {
         const isTarget = d.isSP530E || d.address.toUpperCase() === '7C4FADEB2AAA' || d.name?.includes('SP530E');
-        const displayName = d.name && d.name.trim().length > 0
-          ? d.name
-          : (isTarget ? `SP530E Controller (BLE - ${d.address})` : `BLE Device (${d.address})`);
+        if (!isTarget) {
+          continue; // Filter out unrelated nearby BLE peripherals (LG TV, Shield, etc.)
+        }
+        const displayName = `SP530E Controller (BLE - ${d.address})`;
         devices.push({
           id: `sp530e-ble-${d.address.toLowerCase()}`,
           name: displayName,

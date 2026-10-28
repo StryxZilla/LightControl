@@ -392,6 +392,27 @@
 - **Verification & Release Packaging**:
   - 77/77 unit tests passing. Rebuilt portable executable `LightControl-Portable.exe` and prepared release `v0.4.1`.
 
+### Phase 12: Wi-Fi TCP Connection Lifecycle Repair, Command Queue Serialization & False BLE Filter (Completed)
+- **TCP Connection Mutex & Single-Socket Protection**:
+  - Implemented singleton promise lock (`connectPromise`) preventing concurrent `connect()` executions from racing.
+  - Bound socket instances to session IDs (`currentSessionId`), preventing stale `'close'` or `'error'` events from defunct sockets from setting active device state to disconnected.
+- **FIFO Command Queue & Bounded Retries**:
+  - Replaced direct socket writes with a sequential queue (`commandQueue`) that auto-reconnects on idle timeout drops and performs up to 3 bounded retries with backoff.
+  - Guaranteed `logCommandTransmitted` only emits when a socket write successfully flushes to the wire.
+- **Asynchronous Rate Limiting & Debouncing**:
+  - Added `isExecuting` lock to `DeviceRateLimiter`, ensuring rapid color updates coalesce into trailing execution without parallel TCP execution.
+- **Stream Parser & Untruncated Telemetry Logging**:
+  - Upgraded parser to buffer partial chunks, detect magic header alignment, handle multi-frame delivery, and record complete raw hex strings.
+- **Elimination of False BLE Devices & Dry-Run Normalization**:
+  - Added strict filtering in `Sp530eBleHelper.cs` and `Sp530eWindowsBleTransport.ts` excluding unrelated Bluetooth peripherals (LG TVs, Shield, etc.).
+  - Changed default `dryRun` setting from `true` to `false` for live hardware control.
+- **Automated Regression Suite**:
+  - Added 3 regression tests in `tests/adapters/sp530e-tcp-regression.test.ts`. 80/80 tests passing.
+- **Hardware Verification Script**:
+  - Authored `scripts/test-sp530e-power-hardware.ts` awaiting user approval.
+- **Documentation**:
+  - Authored `docs/SP530E_ROOT_CAUSE.md`, `docs/SP530E_TCP_FIX.md`, and `docs/SP530E_POWER_VERIFICATION.md`.
+
 ---
 
 ## Status of Hardware Verification

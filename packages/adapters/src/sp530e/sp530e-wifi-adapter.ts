@@ -59,6 +59,16 @@ export class SP530EWiFiDevice implements ILedDevice {
   private bleTransport?: any;
   private bleTargetAddress: string = '7C4FADEB2AAA';
 
+  private connectPromise: Promise<boolean> | null = null;
+  private currentSessionId: number = 0;
+  private commandQueue: Array<{
+    opcodeDesc: string;
+    frame: Uint8Array;
+    resolve: (val: boolean) => void;
+    reject: (err: any) => void;
+  }> = [];
+  private isProcessingQueue: boolean = false;
+
   setBleTransport(transport: any, targetAddress = '7C4FADEB2AAA'): void {
     this.bleTransport = transport;
     this.bleTargetAddress = targetAddress;
@@ -144,7 +154,16 @@ export class SP530EWiFiDevice implements ILedDevice {
     if (this.connectionInfo.state === 'connected' && this.socket && !this.socket.destroyed) {
       return true;
     }
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+    this.connectPromise = this._doConnect().finally(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
+  }
 
+  private async _doConnect(): Promise<boolean> {
     this.connectionInfo.state = 'connecting';
     this.diagnostics?.logConnectionAttempt(this.id, 'wifi-tcp', `${this.host}:${this.port}`);
 
@@ -156,13 +175,26 @@ export class SP530EWiFiDevice implements ILedDevice {
       return true;
     }
 
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.destroy();
+      this.socket = null;
+    }
+
+    const sessionId = ++this.currentSessionId;
+    this.queryBuffer = Buffer.alloc(0);
+
     return new Promise((resolve, reject) => {
       let isResolved = false;
       const socket = new net.Socket();
-      socket.setTimeout(5000);
+      socket.setTimeout(4000);
 
       socket.connect(this.port, this.host, async () => {
-        // Clear idle timeout so the persistent session is not killed by Node.js
+        if (this.currentSessionId !== sessionId) {
+          socket.destroy();
+          return;
+        }
+
         socket.setTimeout(0);
         socket.setKeepAlive(true, 5000);
         socket.setNoDelay(true);
@@ -173,12 +205,6 @@ export class SP530EWiFiDevice implements ILedDevice {
         this.connectionInfo.lastConnectedAt = Date.now();
         this.diagnostics?.logConnectionResult(this.id, true, 'wifi-tcp');
 
-        try {
-          // Perform passive telemetry query to populate live parameters
-          await this.refreshState();
-        } catch {
-          // Keep connected even if initial query response was delayed
-        }
         if (!isResolved) {
           isResolved = true;
           resolve(true);
@@ -186,28 +212,54 @@ export class SP530EWiFiDevice implements ILedDevice {
       });
 
       socket.on('data', (chunk: Buffer) => {
+        if (this.currentSessionId !== sessionId) return;
+
         this.queryBuffer = Buffer.concat([this.queryBuffer, chunk]);
 
-        if (this.queryBuffer.length >= 13) {
+        while (this.queryBuffer.length >= 13) {
+          const magicMatch =
+            this.queryBuffer[0] === 0x53 &&
+            this.queryBuffer[1] === 0x50 &&
+            this.queryBuffer[2] === 0x54 &&
+            this.queryBuffer[3] === 0x45 &&
+            this.queryBuffer[4] === 0x43 &&
+            this.queryBuffer[5] === 0x48 &&
+            this.queryBuffer[6] === 0x00;
+
+          if (!magicMatch) {
+            const idx = this.queryBuffer.indexOf(Buffer.from([0x53, 0x50, 0x54, 0x45, 0x43, 0x48, 0x00]));
+            if (idx !== -1) {
+              this.queryBuffer = this.queryBuffer.subarray(idx);
+              continue;
+            } else {
+              this.queryBuffer = this.queryBuffer.subarray(Math.max(0, this.queryBuffer.length - 6));
+              break;
+            }
+          }
+
           const payloadLen = (this.queryBuffer[11]! << 8) | this.queryBuffer[12]!;
           const totalExpected = 13 + payloadLen;
 
-          if (this.queryBuffer.length >= totalExpected) {
-            const completePacket = new Uint8Array(this.queryBuffer.subarray(0, totalExpected));
-            this.queryBuffer = this.queryBuffer.subarray(totalExpected);
+          if (this.queryBuffer.length < totalExpected) {
+            break;
+          }
 
-            this.diagnostics?.logDeviceResponse(this.id, Buffer.from(completePacket).toString('hex'));
+          const completePacket = new Uint8Array(this.queryBuffer.subarray(0, totalExpected));
+          this.queryBuffer = this.queryBuffer.subarray(totalExpected);
 
-            if (this.queryResolver) {
-              const res = this.queryResolver;
-              this.queryResolver = null;
-              res(completePacket);
-            }
+          const fullHex = Buffer.from(completePacket).toString('hex');
+          this.diagnostics?.logDeviceResponse(this.id, fullHex);
+
+          if (this.queryResolver) {
+            const res = this.queryResolver;
+            this.queryResolver = null;
+            res(completePacket);
           }
         }
       });
 
       socket.on('error', (err) => {
+        if (this.currentSessionId !== sessionId) return;
         this.connectionInfo.state = 'error';
         this.connectionInfo.connected = false;
         this.connectionInfo.disconnectReason = err.message;
@@ -221,6 +273,7 @@ export class SP530EWiFiDevice implements ILedDevice {
       });
 
       socket.on('close', () => {
+        if (this.currentSessionId !== sessionId) return;
         this.connectionInfo.state = 'disconnected';
         this.connectionInfo.connected = false;
         this.socket = null;
@@ -228,6 +281,7 @@ export class SP530EWiFiDevice implements ILedDevice {
       });
 
       socket.on('timeout', () => {
+        if (this.currentSessionId !== sessionId) return;
         if (!this.connectionInfo.connected) {
           socket.destroy();
           this.connectionInfo.state = 'unavailable';
@@ -246,7 +300,9 @@ export class SP530EWiFiDevice implements ILedDevice {
   }
 
   async disconnect(): Promise<void> {
+    this.currentSessionId++;
     if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.destroy();
       this.socket = null;
     }
@@ -256,7 +312,7 @@ export class SP530EWiFiDevice implements ILedDevice {
   }
 
   /**
-   * Transmits a control frame over the active TCP socket or handles dry-run mode.
+   * Transmits a control frame using the serialized FIFO queue with bounded retries.
    */
   private async writeControlPacket(opcodeDesc: string, frame: Uint8Array): Promise<boolean> {
     this.lastEncodedFrame = frame;
@@ -268,26 +324,75 @@ export class SP530EWiFiDevice implements ILedDevice {
       return true;
     }
 
-    if (!this.socket || this.connectionInfo.state !== 'connected' || this.socket.destroyed) {
-      await this.connect();
+    return new Promise<boolean>((resolve, reject) => {
+      this.commandQueue.push({
+        opcodeDesc,
+        frame,
+        resolve,
+        reject,
+      });
+      this.processCommandQueue();
+    });
+  }
+
+  private async processCommandQueue(): Promise<void> {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    while (this.commandQueue.length > 0) {
+      const item = this.commandQueue.shift()!;
+      const hex = Buffer.from(item.frame).toString('hex');
+
+      let success = false;
+      for (let attempt = 0; attempt <= 2; attempt++) {
+        try {
+          if (!this.socket || this.connectionInfo.state !== 'connected' || this.socket.destroyed) {
+            await this.connect();
+          }
+
+          if (!this.socket || this.socket.destroyed) {
+            throw new Error(`Socket unavailable for ${item.opcodeDesc}`);
+          }
+
+          await new Promise<void>((res, rej) => {
+            const timer = setTimeout(() => {
+              rej(new Error(`Write command ${item.opcodeDesc} timed out after 3000ms`));
+            }, 3000);
+
+            this.socket!.write(item.frame, (err) => {
+              clearTimeout(timer);
+              if (err) rej(err);
+              else res();
+            });
+          });
+
+          this.diagnostics?.logCommandTransmitted(this.id, item.opcodeDesc, hex, item.frame.length);
+          item.resolve(true);
+          success = true;
+          break;
+        } catch (err: any) {
+          this.diagnostics?.log('warn', 'TRANSMIT', `Attempt ${attempt + 1}/3 failed for ${item.opcodeDesc}: ${err.message}`);
+          if (this.socket) {
+            this.socket.destroy();
+            this.socket = null;
+          }
+          this.connectionInfo.state = 'disconnected';
+          this.connectionInfo.connected = false;
+
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          } else {
+            this.diagnostics?.log('error', 'TRANSMIT', `All 3 attempts failed for ${item.opcodeDesc}: ${err.message}`);
+            item.reject(err);
+          }
+        }
+      }
+
+      // 20ms pacing between successive transmissions
+      await new Promise((r) => setTimeout(r, 20));
     }
 
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`Write command ${opcodeDesc} to ${this.host}:${this.port} timed out`));
-      }, 3000);
-
-      this.socket?.write(frame, (err) => {
-        clearTimeout(timer);
-        if (err) {
-          this.diagnostics?.log('error', 'TRANSMIT', `Failed transmitting ${opcodeDesc}: ${err.message}`, { err });
-          reject(err);
-        } else {
-          this.diagnostics?.logCommandTransmitted(this.id, opcodeDesc, hex, frame.length);
-          resolve(true);
-        }
-      });
-    });
+    this.isProcessingQueue = false;
   }
 
   /**
@@ -327,30 +432,32 @@ export class SP530EWiFiDevice implements ILedDevice {
       return new Uint8Array(428);
     }
 
-    // If already connected, use the primary socket
     if (this.socket && this.connectionInfo.state === 'connected' && !this.socket.destroyed) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          this.queryResolver = null;
-          reject(new Error(`Timeout reading telemetry from active socket ${this.host}:${this.port}`));
-        }, 3000);
-
-        this.queryResolver = (data) => {
-          clearTimeout(timer);
-          resolve(data);
-        };
-
-        this.socket!.write(queryFrame, (err) => {
-          if (err) {
-            clearTimeout(timer);
+      try {
+        return await new Promise<Uint8Array>((resolve, reject) => {
+          const timer = setTimeout(() => {
             this.queryResolver = null;
-            reject(err);
-          }
+            reject(new Error(`Timeout reading telemetry from active socket ${this.host}:${this.port}`));
+          }, 3000);
+
+          this.queryResolver = (data) => {
+            clearTimeout(timer);
+            resolve(data);
+          };
+
+          this.socket!.write(queryFrame, (err) => {
+            if (err) {
+              clearTimeout(timer);
+              this.queryResolver = null;
+              reject(err);
+            }
+          });
         });
-      });
+      } catch {
+        // Fall through to dedicated handshake socket
+      }
     }
 
-    // Otherwise use a short temporary handshake socket
     return new Promise((resolve, reject) => {
       const tempSocket = new net.Socket();
       tempSocket.setTimeout(3000);
@@ -373,6 +480,7 @@ export class SP530EWiFiDevice implements ILedDevice {
       });
 
       tempSocket.on('error', (err) => {
+        tempSocket.destroy();
         reject(err);
       });
 
@@ -391,6 +499,14 @@ export class SP530EWiFiDevice implements ILedDevice {
     await this.bridgeBleWrite(`Power ${on ? 'ON' : 'OFF'}`, new Uint8Array([0x53, 0x50, 0x00, 0x01, 0x00, 0x01, on ? 0x01 : 0x00]));
     this.state.power = on;
     this.emitStateChange(prev);
+
+    try {
+      const refreshed = await this.refreshState();
+      this.diagnostics?.log('info', 'VERIFY', `Hardware telemetry confirmed Power state: ${refreshed.power ? 'ON' : 'OFF'}`);
+    } catch (err: any) {
+      this.diagnostics?.log('debug', 'VERIFY', `Post-power verification: ${err.message}`);
+    }
+
     return true;
   }
 
@@ -581,7 +697,7 @@ export class SP530EWiFiAdapter implements ILedAdapter {
     // If an active session is already connected to this host, avoid opening a redundant probe socket
     // that might trigger TCP reset on single-socket microcontrollers (ESP32)
     for (const dev of this.devices.values()) {
-      if (dev.connectionInfo.address.startsWith(host) && dev.connectionInfo.connected) {
+      if (dev.connectionInfo.address.startsWith(host) && (dev.connectionInfo.connected || dev.connectionInfo.state === 'connecting')) {
         return Promise.resolve({ ok: true, alreadyConnected: true });
       }
     }

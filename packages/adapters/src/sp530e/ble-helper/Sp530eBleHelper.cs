@@ -174,7 +174,15 @@ namespace Sp530eBleHelper
             {
                 foreach (var item in discovered.Values)
                 {
-                    list.Add(item);
+                    bool isSp = false;
+                    if (item.ContainsKey("isSP530E") && (bool)item["isSP530E"])
+                    {
+                        isSp = true;
+                    }
+                    if (isSp)
+                    {
+                        list.Add(item);
+                    }
                 }
             }
 

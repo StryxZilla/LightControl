@@ -19,6 +19,7 @@ export class DeviceRateLimiter {
   private pendingTimer = new Map<string, ReturnType<typeof setTimeout>>();
   private pendingResolvers = new Map<string, Array<{ resolve: (val: any) => void; reject: (err: any) => void }>>();
   private latestFn = new Map<string, () => Promise<any>>();
+  private isExecuting = new Map<string, boolean>();
   private readonly minIntervalMs: number;
 
   constructor(options: RateLimiterOptions = {}) {
@@ -32,10 +33,17 @@ export class DeviceRateLimiter {
     const now = Date.now();
     const last = this.lastExecution.get(deviceKey) ?? 0;
     const elapsed = now - last;
+    const busy = this.isExecuting.get(deviceKey) ?? false;
 
-    if (elapsed >= this.minIntervalMs && !this.pendingTimer.has(deviceKey)) {
+    if (!busy && elapsed >= this.minIntervalMs && !this.pendingTimer.has(deviceKey)) {
       this.lastExecution.set(deviceKey, now);
-      return await fn();
+      this.isExecuting.set(deviceKey, true);
+      try {
+        return await fn();
+      } finally {
+        this.isExecuting.set(deviceKey, false);
+        this.checkPending(deviceKey);
+      }
     }
 
     // Coalesce into trailing execution
@@ -46,33 +54,62 @@ export class DeviceRateLimiter {
       list.push({ resolve, reject });
       this.pendingResolvers.set(deviceKey, list);
 
-      if (!this.pendingTimer.has(deviceKey)) {
-        const delay = Math.max(1, this.minIntervalMs - elapsed);
-        const timer = setTimeout(async () => {
-          this.pendingTimer.delete(deviceKey);
-          this.lastExecution.set(deviceKey, Date.now());
-
-          const targetFn = this.latestFn.get(deviceKey);
-          this.latestFn.delete(deviceKey);
-
-          const waiting = this.pendingResolvers.get(deviceKey) ?? [];
-          this.pendingResolvers.delete(deviceKey);
-
-          try {
-            const res = targetFn ? await targetFn() : undefined;
-            for (const waiter of waiting) {
-              waiter.resolve(res);
-            }
-          } catch (err) {
-            for (const waiter of waiting) {
-              waiter.reject(err);
-            }
-          }
-        }, delay);
-
-        this.pendingTimer.set(deviceKey, timer);
+      if (!this.pendingTimer.has(deviceKey) && !busy) {
+        this.scheduleTrailing(deviceKey, Math.max(1, this.minIntervalMs - elapsed));
       }
     });
+  }
+
+  private scheduleTrailing(deviceKey: string, delay: number): void {
+    if (this.pendingTimer.has(deviceKey)) return;
+    const timer = setTimeout(() => {
+      this.pendingTimer.delete(deviceKey);
+      this.runTrailing(deviceKey);
+    }, delay);
+    this.pendingTimer.set(deviceKey, timer);
+  }
+
+  private async runTrailing(deviceKey: string): Promise<void> {
+    if (this.isExecuting.get(deviceKey)) {
+      return;
+    }
+    const targetFn = this.latestFn.get(deviceKey);
+    this.latestFn.delete(deviceKey);
+    const waiting = this.pendingResolvers.get(deviceKey) ?? [];
+    this.pendingResolvers.delete(deviceKey);
+
+    if (!targetFn && waiting.length === 0) return;
+
+    this.lastExecution.set(deviceKey, Date.now());
+    this.isExecuting.set(deviceKey, true);
+
+    try {
+      const res = targetFn ? await targetFn() : undefined;
+      for (const waiter of waiting) {
+        waiter.resolve(res);
+      }
+    } catch (err) {
+      for (const waiter of waiting) {
+        waiter.reject(err);
+      }
+    } finally {
+      this.isExecuting.set(deviceKey, false);
+      this.checkPending(deviceKey);
+    }
+  }
+
+  private checkPending(deviceKey: string): void {
+    if (this.latestFn.has(deviceKey) && !(this.isExecuting.get(deviceKey) ?? false)) {
+      const now = Date.now();
+      const last = this.lastExecution.get(deviceKey) ?? 0;
+      const elapsed = now - last;
+      const delay = Math.max(0, this.minIntervalMs - elapsed);
+      if (delay === 0) {
+        this.runTrailing(deviceKey);
+      } else {
+        this.scheduleTrailing(deviceKey, delay);
+      }
+    }
   }
 
   clear(): void {
@@ -88,6 +125,7 @@ export class DeviceRateLimiter {
     this.pendingResolvers.clear();
     this.latestFn.clear();
     this.lastExecution.clear();
+    this.isExecuting.clear();
   }
 }
 

@@ -225,7 +225,7 @@ export class DiagnosticsService {
 
   logDeviceResponse(deviceId: string, responseHex: string, latencyMs?: number): void {
     this.recordPacketReceived(deviceId, responseHex.length / 2, latencyMs);
-    this.log('info', 'RECEIVE', `Received response from ${deviceId} (${latencyMs ?? 0}ms): ${responseHex.slice(0, 64)}...`, { latencyMs }, {
+    this.log('info', 'RECEIVE', `Received response from ${deviceId} (${latencyMs ?? 0}ms): ${responseHex}`, { latencyMs, rawHex: responseHex }, {
       action: 'RESPONSE_RECEIVED',
       deviceId,
     });
