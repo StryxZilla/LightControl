@@ -122,15 +122,18 @@ export class SpnetCodec {
 
   /**
    * Encodes a Light Mode selection command over Wi-Fi (Opcode 0x53).
-   * Verified payload: [mode (1-5), effect (1-N)] (2 bytes)
-   * Mode 1: Static Color (effect = 1)
-   * Mode 2: Dynamic Effects (effect = effectId)
-   * Mode 3: Sound / Music Reactive (effect = soundEffectId)
-   * Mode 4: Custom Solid DIY
-   * Mode 5: Custom Gradient DIY
+   * Verified payload from UniLED dev_v3 / BanlanX: [mode, effect] (2 bytes)
+   * Mode 0x01: MODE_STATIC_COLOR (effect = 0x01)
+   * Mode 0x02: MODE_STATIC_WHITE (PWM / CCT only)
+   * Mode 0x03: MODE_DYNAMIC_COLOR (effect = effectId 1-142 for SPI RGB)
+   * Mode 0x04: MODE_DYNAMIC_WHITE (PWM / CCT only)
+   * Mode 0x05: MODE_SOUND_COLOR (effect = soundEffectId 1-18 for SPI RGB)
+   * Mode 0x06: MODE_SOUND_WHITE (PWM / CCT only)
+   * Mode 0x07: MODE_CUSTOM_SOLID
+   * Mode 0x08: MODE_CUSTOM_GRADIENT
    */
   static encodeLightMode(mode: number, effect = 1): Uint8Array {
-    const m = Math.max(1, Math.min(5, Math.round(mode)));
+    const m = Math.max(1, Math.min(8, Math.round(mode)));
     const eff = Math.max(1, Math.min(255, Math.round(effect)));
     return this.buildControlFrame(this.CMD.LIGHT_MODE, new Uint8Array([m, eff]));
   }
@@ -144,35 +147,72 @@ export class SpnetCodec {
 
   /**
    * Encodes a Dynamic Effect mode selection command over Wi-Fi.
-   * Opcode: 0x53. Payload: [mode = 0x02, effect = effectId] (2 bytes)
-   */
-  static encodeEffectMode(effectId: number): Uint8Array {
-    return this.encodeLightMode(0x02, effectId);
-  }
-
-  /**
-   * Encodes a Sound / Music reactive mode selection command over Wi-Fi.
    * Opcode: 0x53. Payload: [mode = 0x03, effect = effectId] (2 bytes)
    */
-  static encodeSoundMode(effectId: number): Uint8Array {
+  static encodeEffectMode(effectId: number): Uint8Array {
     return this.encodeLightMode(0x03, effectId);
   }
 
   /**
-   * Encodes an Effect Speed (0-255) command over Wi-Fi.
-   * Opcode: 0x54. Payload: [speed]
+   * Encodes a Sound / Music reactive mode selection command over Wi-Fi.
+   * Opcode: 0x53. Payload: [mode = 0x05, effect = effectId] (2 bytes)
+   */
+  static encodeSoundMode(effectId: number): Uint8Array {
+    return this.encodeLightMode(0x05, effectId);
+  }
+
+  /**
+   * Encodes an Effect Play/Resume command over Wi-Fi (Opcode 0x5D).
+   * Payload: [0x01 = Play, 0x00 = Pause]
+   */
+  static encodeEffectPlay(play: boolean): Uint8Array {
+    return this.buildControlFrame(this.CMD.EFFECT_PLAY, new Uint8Array([play ? 0x01 : 0x00]));
+  }
+
+  /**
+   * Encodes an Effect Speed command over Wi-Fi (Opcode 0x54).
+   * Sperll controller hardware dynamic speed range is 1 to 10.
    */
   static encodeEffectSpeed(speed: number): Uint8Array {
-    const s = Math.max(0, Math.min(255, Math.round(speed)));
+    const s = Math.max(1, Math.min(10, Math.round(speed)));
     return this.buildControlFrame(this.CMD.EFFECT_SPEED, new Uint8Array([s]));
   }
 
   /**
-   * Encodes an Effect Direction command over Wi-Fi.
-   * Opcode: 0x56. Payload: [dir: 0 = Forward, 1 = Reverse]
+   * Encodes an Effect Length / Dot Count command over Wi-Fi (Opcode 0x55).
+   * Payload: [length] (1 to 150)
+   */
+  static encodeEffectLength(length: number): Uint8Array {
+    const l = Math.max(1, Math.min(150, Math.round(length)));
+    return this.buildControlFrame(this.CMD.EFFECT_LENGTH, new Uint8Array([l]));
+  }
+
+  /**
+   * Encodes an Effect Direction command over Wi-Fi (Opcode 0x56).
+   * Payload: [dir: 0 = Forward, 1 = Reverse]
    */
   static encodeEffectDirection(reverse: boolean): Uint8Array {
     return this.buildControlFrame(this.CMD.EFFECT_DIRECTION, new Uint8Array([reverse ? 0x01 : 0x00]));
+  }
+
+  /**
+   * Encodes an Effect Color command over Wi-Fi (Opcode 0x57).
+   * Payload: [R, G, B] (3 bytes)
+   */
+  static encodeEffectColor(r: number, g: number, b: number): Uint8Array {
+    const red = Math.max(0, Math.min(255, Math.round(r)));
+    const green = Math.max(0, Math.min(255, Math.round(g)));
+    const blue = Math.max(0, Math.min(255, Math.round(b)));
+    return this.buildControlFrame(this.CMD.EFFECT_COLOR, new Uint8Array([red, green, blue]));
+  }
+
+  /**
+   * Encodes an Audio Gain / Sensitivity command over Wi-Fi (Opcode 0x5A).
+   * Payload: [gain] (1 to 16)
+   */
+  static encodeAudioGain(gain: number): Uint8Array {
+    const g = Math.max(1, Math.min(16, Math.round(gain)));
+    return this.buildControlFrame(this.CMD.AUDIO_GAIN, new Uint8Array([g]));
   }
 
   /**
@@ -288,9 +328,9 @@ export class SpnetCodec {
 
     const lightModeNum = buffer.length > 43 ? buffer[43]! : 0x01;
     let mappedMode: 'solid' | 'effect' | 'music' = 'solid';
-    if (lightModeNum === 0x03) {
+    if (lightModeNum === 0x05 || lightModeNum === 0x06) {
       mappedMode = 'music';
-    } else if (lightModeNum === 0x02 || (lightModeNum !== 0x01 && modeId > 0)) {
+    } else if (lightModeNum === 0x03 || lightModeNum === 0x04 || lightModeNum === 0x08 || (lightModeNum !== 0x01 && modeId > 0)) {
       mappedMode = 'effect';
     }
 

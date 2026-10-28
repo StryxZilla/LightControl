@@ -87,31 +87,33 @@ All Wi-Fi control frames use a 13-byte header prefixed by the ASCII magic string
 * **Purpose**: Switch operating mode and active effect.
 * **Hex Template**: `53505445434800530000000002[Mode][Effect]` (15 bytes)
 * **Payload**: 2 bytes:
-  * **Byte 0 (Mode)**:
-    * `0x01`: Static Solid Color mode ("stable")
-    * `0x02`: Dynamic Effect mode
-    * `0x03`: Sound / Music Reactive mode
-    * `0x04`: Custom Solid (DIY) mode
-    * `0x05`: Custom Gradient (DIY) mode
+  * **Byte 0 (Mode)** (Verified via UniLED `SPTechFX` & Sperll firmware model):
+    * `0x01`: Static Color mode (`MODE_STATIC_COLOR`)
+    * `0x02`: Static White mode (`MODE_STATIC_WHITE`, PWM/CCT only)
+    * `0x03`: Dynamic Color mode (`MODE_DYNAMIC_COLOR`, SPI RGB built-in animations 1-142)
+    * `0x04`: Dynamic White mode (`MODE_DYNAMIC_WHITE`, PWM/CCT only)
+    * `0x05`: Sound / Music Reactive mode (`MODE_SOUND_COLOR`, SPI RGB sound effects 1-18)
+    * `0x06`: Sound White mode (`MODE_SOUND_WHITE`, PWM/CCT only)
+    * `0x07`: Custom Solid DIY mode (`MODE_CUSTOM_SOLID`)
+    * `0x08`: Custom Gradient DIY mode (`MODE_CUSTOM_GRADIENT`)
   * **Byte 1 (Effect)**:
     * For Mode 1 (Static): `0x01`
-    * For Mode 2 (Dynamic): Effect index `0x01..N` (e.g. 1 = Rainbow Chaser, 2 = Meteor, etc.)
-    * For Mode 3 (Sound): Sound effect index `0x01..N`
+    * For Mode 3 (Dynamic Color): Effect index `0x01..0x8E` (1-142, e.g. 1 = Rainbow, 2 = Rainbow Meteor, etc.)
+    * For Mode 5 (Sound Color): Sound effect index `0x01..0x12` (1-18)
 * **Verified Frame Examples**:
   * **Static Solid Color Mode (Mode 1)**: `535054454348005300000000020101`
-  * **Dynamic Effect 1 (Rainbow)**: `535054454348005300000000020201`
-  * **Dynamic Effect 15**: `53505445434800530000000002020f`
-  * **Sound Reactive Mode (Mode 3, Effect 1)**: `535054454348005300000000020301`
-* **Critical Protocol Nuance (The Mode Lockout Bug)**:
-  * When a 1-byte payload (`[id]`) was sent to Opcode `0x53`, the ESP32 firmware interpreted the single byte as the `Mode` field!
-  * If `id = 3` was sent, the controller switched into **Mode 3 (Sound Reactive mode)**.
-  * In Sound Mode, the ESP32 suspends static pixel updates and brightness dimming, reacting exclusively to microphone input.
-  * Setting a solid RGB color (`0x52`) does **NOT** exit Sound Mode. The driver must explicitly transmit `0x53 [0x01, 0x01]` to return to Static Mode before or alongside `0x52`.
+  * **Dynamic Effect 1 (Rainbow)**: `535054454348005300000000020301`
+  * **Dynamic Effect 15 (Comet Red)**: `53505445434800530000000002030f`
+  * **Sound Reactive Mode (Mode 5, Effect 1)**: `535054454348005300000000020501`
+* **Critical Protocol Nuances**:
+  * **Mode 2 vs Mode 3**: For addressable SPI RGB strips (`CFG_86`), Mode `0x02` is `MODE_STATIC_WHITE` (an invalid mode for pure RGB strips). Dynamic animations reside strictly under Mode `0x03` (`MODE_DYNAMIC_COLOR`).
+  * **Effect Playback State (`0x5D`)**: Switching to Dynamic Mode requires unpausing the animation engine via Opcode `0x5D [0x01]` (`EFFECT_PLAY`).
+  * **Length Parameter (`0x55`)**: The animation dot length should match the strip pixel count (e.g. 60 px) to render across the full strip.
 
 ### 2.7 Effect Speed (`0x54`)
 * **Purpose**: Set dynamic animation speed.
 * **Hex Template**: `53505445434800540000000001[Speed]` (14 bytes)
-* **Payload**: 1 byte: `[speed (0-255)]`
+* **Payload**: 1 byte: `[speed (1-10)]` (Sperll SP530E controller hardware speed is 1 to 10; 1 = slowest, 10 = fastest).
 
 ### 2.8 Effect Length (`0x55`)
 * **Purpose**: Set effect segment pattern length (number of active pixel dots in chaser/pattern).
@@ -124,15 +126,25 @@ All Wi-Fi control frames use a 13-byte header prefixed by the ASCII magic string
 * **Hex Template**: `53505445434800560000000001[Dir]` (14 bytes)
 * **Payload**: 1 byte: `[0x00 = Forward, 0x01 = Reverse]`
 
-### 2.10 Audio Input Source (`0x59`)
+### 2.10 Effect Color (`0x57`)
+* **Purpose**: Set custom RGB palette color for dynamic effects that support user colors (e.g. Comet, Snake, Wave, Stacking).
+* **Hex Template**: `53505445434800570000000003[R][G][B]` (16 bytes)
+* **Payload**: 3 bytes: `[R, G, B]`
+
+### 2.11 Effect Play / Pause (`0x5D`)
+* **Purpose**: Play/Resume or Pause/Stop dynamic running effects.
+* **Hex Template**: `535054454348005d0000000001[Play]` (14 bytes)
+* **Payload**: 1 byte: `[0x01 = Play/Resume, 0x00 = Pause/Stop]`
+
+### 2.12 Audio Input Source (`0x59`)
 * **Purpose**: Switch sound reactivity between built-in onboard microphone (`inner_mic`) and auxiliary input.
 * **Hex Template**: `53505445434800590000000001[Source]` (14 bytes)
 * **Payload**: 1 byte: `[0x00 = Built-in Mic, 0x01 = Line In]`
 
-### 2.11 Audio Sensitivity / Gain (`0x5A`)
+### 2.13 Audio Sensitivity / Gain (`0x5A`)
 * **Purpose**: Adjust microphone reaction threshold.
 * **Hex Template**: `535054454348005a0000000001[Gain]` (14 bytes)
-* **Payload**: 1 byte: `[gain (1-255)]`
+* **Payload**: 1 byte: `[gain (1-16)]`
 
 ---
 

@@ -79,12 +79,12 @@ test('SpnetCodec encodes control frames with 13-byte SPTECH header and correct p
   assert.strictEqual(red[12], 0x04); // Payload len = 4
   assert.deepStrictEqual(Array.from(red.subarray(13)), [255, 0, 0, 255]);
 
-  // Dynamic Effect Mode 1: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0002 + [0x02, 1]
+  // Dynamic Effect Mode 1: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0002 + [0x03, 1]
   const effect = SpnetCodec.encodeEffectMode(1);
   assert.strictEqual(effect.length, 15);
   assert.strictEqual(effect[7], 0x53); // Command: LIGHT_MODE
   assert.strictEqual(effect[12], 0x02); // Payload len = 2
-  assert.deepStrictEqual(Array.from(effect.subarray(13)), [0x02, 1]);
+  assert.deepStrictEqual(Array.from(effect.subarray(13)), [0x03, 1]);
 
   // Static Mode: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0002 + [0x01, 0x01]
   const staticMode = SpnetCodec.encodeStaticMode();
@@ -93,11 +93,17 @@ test('SpnetCodec encodes control frames with 13-byte SPTECH header and correct p
   assert.strictEqual(staticMode[12], 0x02);
   assert.deepStrictEqual(Array.from(staticMode.subarray(13)), [0x01, 0x01]);
 
-  // Effect Speed: SPTECH\0 + 0x54 + 0x00 + 0x0000 + 0x0001 + [128]
-  const speed = SpnetCodec.encodeEffectSpeed(128);
+  // Effect Speed: SPTECH\0 + 0x54 + 0x00 + 0x0000 + 0x0001 + [8] (clamped 1-10)
+  const speed = SpnetCodec.encodeEffectSpeed(8);
   assert.strictEqual(speed.length, 14);
   assert.strictEqual(speed[7], 0x54); // Command: EFFECT_SPEED
-  assert.deepStrictEqual(Array.from(speed.subarray(13)), [128]);
+  assert.deepStrictEqual(Array.from(speed.subarray(13)), [8]);
+
+  // Effect Play: SPTECH\0 + 0x5D + 0x00 + 0x0000 + 0x0001 + [0x01]
+  const play = SpnetCodec.encodeEffectPlay(true);
+  assert.strictEqual(play.length, 14);
+  assert.strictEqual(play[7], 0x5d); // Command: EFFECT_PLAY
+  assert.deepStrictEqual(Array.from(play.subarray(13)), [0x01]);
 
   // Direction: SPTECH\0 + 0x56 + 0x00 + 0x0000 + 0x0001 + [1]
   const dir = SpnetCodec.encodeEffectDirection(true);

@@ -224,9 +224,14 @@ test('SPTech Light Mode Switching: setEffect sets Mode 2, setColor asserts Mode 
     const effectCmd = commandsSent.find((c) => c[7] === 0x53);
     assert.ok(effectCmd, 'Must transmit 0x53 for EffectMode');
     assert.strictEqual(effectCmd[12], 0x02, 'Payload length must be 2 bytes');
-    assert.strictEqual(effectCmd[13], 0x02, 'Byte 0 must be Mode 2 (Dynamic Mode)');
+    assert.strictEqual(effectCmd[13], 0x03, 'Byte 0 must be Mode 3 (Dynamic Mode for SPI RGB)');
     assert.strictEqual(effectCmd[14], 15, 'Byte 1 must be Effect ID 15');
     assert.strictEqual(device.state.mode, 'effect');
+
+    // Also verify EffectPlay (0x5D) was transmitted
+    const playCmd = commandsSent.find((c) => c[7] === 0x5d);
+    assert.ok(playCmd, 'Must transmit 0x5D to unpause dynamic animations');
+    assert.strictEqual(playCmd[13], 0x01, 'EffectPlay must be 0x01');
 
     commandsSent.length = 0;
 
@@ -251,9 +256,69 @@ test('SPTech Light Mode Switching: setEffect sets Mode 2, setColor asserts Mode 
     await new Promise((r) => setTimeout(r, 50));
     const musicCmd = commandsSent.find((c) => c[7] === 0x53);
     assert.ok(musicCmd, 'Must transmit 0x53 for MusicMode');
-    assert.strictEqual(musicCmd[13], 0x03, 'Byte 0 must be Mode 3 (Music Mode)');
+    assert.strictEqual(musicCmd[13], 0x05, 'Byte 0 must be Mode 5 (Music Mode for SPI RGB)');
     assert.strictEqual(musicCmd[14], 4, 'Byte 1 must be Music Effect 4');
     assert.strictEqual(device.state.mode, 'music');
+  } finally {
+    await device.disconnect();
+    server.close();
+  }
+});
+
+test('Rapid Power ON/OFF cycling: cancels obsolete color restoration and maintains single connection', async () => {
+  const commandsSent: Uint8Array[] = [];
+  let socketCount = 0;
+  const fixturePath = path.resolve('protocol/fixtures/sp530e_status_response.bin');
+  const fixtureData = fs.readFileSync(fixturePath);
+
+  const server = net.createServer((socket) => {
+    socketCount++;
+    socket.on('data', (chunk) => {
+      commandsSent.push(new Uint8Array(chunk));
+      if (chunk.length >= 8 && chunk[7] === 0x02) {
+        socket.write(fixtureData);
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as net.AddressInfo).port;
+  const device = new SP530EWiFiDevice('127.0.0.1', port, 'Rapid Power Test');
+
+  try {
+    await device.connect();
+    commandsSent.length = 0;
+
+    // Simulate rapid ON followed immediately by OFF (user double click / quick toggle)
+    const onPromise = device.setPower(true);
+    await new Promise((r) => setTimeout(r, 20)); // Short pause < 120ms power restoration delay
+    const offPromise = device.setPower(false);
+
+    await Promise.all([onPromise, offPromise]);
+
+    // Wait 250ms to ensure the 120ms delay in setPower(true) has expired
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Device state must remain OFF
+    assert.strictEqual(device.state.power, false);
+
+    // Filter power commands
+    const powerCommands = commandsSent.filter((c) => c[7] === 0x50);
+    assert.ok(powerCommands.length >= 2, 'Must have received Power ON and Power OFF commands');
+
+    // The last power command sent must be Power OFF (0x00)
+    const lastPower = powerCommands[powerCommands.length - 1]!;
+    assert.strictEqual(lastPower[13], 0x00, 'Final power packet on wire must be Power OFF (0x00)');
+
+    // Crucially: Because setPower(false) occurred before 120ms elapsed,
+    // NO color restoration packets (0x52 or 0x53) from setPower(true) should have been sent after Power OFF!
+    const lastOffIdx = commandsSent.lastIndexOf(lastPower);
+    const trailingCommands = commandsSent.slice(lastOffIdx + 1);
+    const trailingColorCmds = trailingCommands.filter((c) => c[7] === 0x52 || (c[7] === 0x53 && c[13] === 0x01));
+    assert.strictEqual(trailingColorCmds.length, 0, 'No obsolete color restoration commands sent after Power OFF');
+
+    // Socket count must remain exactly 1 (no rogue tempSockets)
+    assert.strictEqual(socketCount, 1, 'Only one persistent TCP session opened throughout rapid cycling');
   } finally {
     await device.disconnect();
     server.close();

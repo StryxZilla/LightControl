@@ -98,6 +98,20 @@ async function sendPacket(socket: net.Socket, packet: Uint8Array, label: string)
   await new Promise((r) => setTimeout(r, 200));
 }
 
+function getModeName(mode: number): string {
+  switch (mode) {
+    case 1: return 'Static Color (Mode 1)';
+    case 2: return 'Static White (Mode 2)';
+    case 3: return 'Dynamic Color (Mode 3)';
+    case 4: return 'Dynamic White (Mode 4)';
+    case 5: return 'Sound Color (Mode 5)';
+    case 6: return 'Sound White (Mode 6)';
+    case 7: return 'Custom Solid (Mode 7)';
+    case 8: return 'Custom Gradient (Mode 8)';
+    default: return `Unknown (Mode ${mode})`;
+  }
+}
+
 async function main() {
   console.log(`=== SP530E Controller Mode Restoration & Verification Tool ===`);
   console.log(`Target: ${HOST}:${PORT}`);
@@ -118,13 +132,13 @@ async function main() {
     const initialInfo = parseModeFromTelemetry(initialRaw);
     console.log(`Current Hardware State:`);
     console.log(`  Power:       ${initialInfo.power ? 'ON' : 'OFF'}`);
-    console.log(`  Mode:        ${initialInfo.mode} (${initialInfo.mode === 1 ? 'Static' : initialInfo.mode === 2 ? 'Dynamic' : initialInfo.mode === 3 ? 'Sound' : 'DIY'})`);
+    console.log(`  Mode:        ${initialInfo.mode} (${getModeName(initialInfo.mode)})`);
     console.log(`  Effect:      ${initialInfo.effect}`);
     console.log(`  Color:       RGB(${initialInfo.color.join(', ')})`);
     console.log(`  Level Color: ${initialInfo.levelColor}`);
     console.log(`  Length:      ${initialInfo.length}`);
 
-    // 2. Switch from Sound Mode (3) back to Static Color Mode (1)
+    // 2. Switch to Static Color Mode (1)
     console.log(`\nStep 2: Switching hardware to Static Color Mode (Mode 1, Effect 1)...`);
     const staticModeFrame = SpnetCodec.encodeStaticMode(); // 0x53 [0x01, 0x01]
     await sendPacket(socket, staticModeFrame, 'LIGHT_MODE: Static Color (Mode 1, Effect 1)');
@@ -140,20 +154,22 @@ async function main() {
     const postStaticInfo = parseModeFromTelemetry(postStaticRaw);
     console.log(`Updated Hardware State:`);
     console.log(`  Power:       ${postStaticInfo.power ? 'ON' : 'OFF'}`);
-    console.log(`  Mode:        ${postStaticInfo.mode} (${postStaticInfo.mode === 1 ? 'Static' : postStaticInfo.mode === 2 ? 'Dynamic' : postStaticInfo.mode === 3 ? 'Sound' : 'DIY'})`);
+    console.log(`  Mode:        ${postStaticInfo.mode} (${getModeName(postStaticInfo.mode)})`);
     console.log(`  Effect:      ${postStaticInfo.effect}`);
     console.log(`  Color:       RGB(${postStaticInfo.color.join(', ')})`);
     console.log(`  Level Color: ${postStaticInfo.levelColor}`);
 
-    // 5. Test Dynamic Mode (Mode 2, Effect 1)
-    console.log(`\nStep 5: Testing Dynamic Effect Mode (Mode 2, Effect 1 - Rainbow/Chaser)...`);
-    const effectFrame = SpnetCodec.encodeEffectMode(1); // 0x53 [0x02, 0x01]
-    await sendPacket(socket, effectFrame, 'LIGHT_MODE: Dynamic Mode 2, Effect 1');
+    // 5. Test Dynamic Mode (Mode 3, Effect 1)
+    console.log(`\nStep 5: Testing Dynamic Effect Mode (Mode 3, Effect 1 - Rainbow/Chaser)...`);
+    const effectFrame = SpnetCodec.encodeEffectMode(1); // 0x53 [0x03, 0x01]
+    await sendPacket(socket, effectFrame, 'LIGHT_MODE: Dynamic Color Mode 3, Effect 1');
+    const playFrame = SpnetCodec.encodeEffectPlay(true);
+    await sendPacket(socket, playFrame, 'EFFECT_PLAY: Play/Resume (0x5D [0x01])');
 
     const postEffectRaw = await queryState(socket);
     const postEffectInfo = parseModeFromTelemetry(postEffectRaw);
     console.log(`Dynamic Effect Hardware State:`);
-    console.log(`  Mode:        ${postEffectInfo.mode} (${postEffectInfo.mode === 2 ? 'Dynamic (SUCCESS)' : 'Unexpected'})`);
+    console.log(`  Mode:        ${postEffectInfo.mode} (${postEffectInfo.mode === 3 ? 'Dynamic (SUCCESS)' : getModeName(postEffectInfo.mode)})`);
     console.log(`  Effect:      ${postEffectInfo.effect}`);
 
     // 6. Return to Static Color Mode (Warm White / Amber safe limit)
@@ -163,7 +179,7 @@ async function main() {
     await sendPacket(socket, warmFrame, 'STATIC_COLOR: Warm Amber (255, 160, 40, 200)');
 
     console.log(`\n=== Verification Complete ===`);
-    console.log(`The controller has been successfully unlocked from Sound Mode 3 and restored to Static Mode 1.`);
+    console.log(`Controller verified in Static Mode 1 and Dynamic Mode 3.`);
     console.log(`Socket closed. BanlanX app now has full exclusive access.`);
   } finally {
     socket.destroy();

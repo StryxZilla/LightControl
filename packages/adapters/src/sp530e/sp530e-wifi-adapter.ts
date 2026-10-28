@@ -59,11 +59,15 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   private connectPromise: Promise<boolean> | null = null;
   private currentSessionId: number = 0;
+  private powerSequenceId: number = 0;
+  private pendingRefreshTimer: NodeJS.Timeout | null = null;
+  private activeQueryPromise: Promise<Uint8Array> | null = null;
   private commandQueue: Array<{
     opcodeDesc: string;
     frame: Uint8Array;
-    resolve: (val: boolean) => void;
+    resolve: (val: any) => void;
     reject: (err: any) => void;
+    isQuery?: boolean;
   }> = [];
   private isProcessingQueue: boolean = false;
 
@@ -279,6 +283,11 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   async disconnect(): Promise<void> {
     this.currentSessionId++;
+    if (this.pendingRefreshTimer) {
+      clearTimeout(this.pendingRefreshTimer);
+      this.pendingRefreshTimer = null;
+    }
+    this.queryResolver = null;
     if (this.socket) {
       this.socket.removeAllListeners();
       this.socket.destroy();
@@ -330,6 +339,34 @@ export class SP530EWiFiDevice implements ILedDevice {
 
           if (!this.socket || this.socket.destroyed) {
             throw new Error(`Socket unavailable for ${item.opcodeDesc}`);
+          }
+
+          if (item.isQuery) {
+            await new Promise<void>((res, rej) => {
+              const timer = setTimeout(() => {
+                this.queryResolver = null;
+                rej(new Error(`Telemetry query timed out after 3000ms from ${this.host}:${this.port}`));
+              }, 3000);
+
+              this.queryResolver = (responsePacket) => {
+                clearTimeout(timer);
+                this.queryResolver = null;
+                item.resolve(responsePacket);
+                res();
+              };
+
+              this.socket!.write(item.frame, (err) => {
+                if (err) {
+                  clearTimeout(timer);
+                  this.queryResolver = null;
+                  rej(err);
+                }
+              });
+            });
+
+            this.diagnostics?.logCommandTransmitted(this.id, item.opcodeDesc, hex, item.frame.length);
+            success = true;
+            break;
           }
 
           await new Promise<void>((res, rej) => {
@@ -410,67 +447,35 @@ export class SP530EWiFiDevice implements ILedDevice {
       return new Uint8Array(428);
     }
 
-    if (this.socket && this.connectionInfo.state === 'connected' && !this.socket.destroyed) {
-      try {
-        return await new Promise<Uint8Array>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            this.queryResolver = null;
-            reject(new Error(`Timeout reading telemetry from active socket ${this.host}:${this.port}`));
-          }, 3000);
-
-          this.queryResolver = (data) => {
-            clearTimeout(timer);
-            resolve(data);
-          };
-
-          this.socket!.write(queryFrame, (err) => {
-            if (err) {
-              clearTimeout(timer);
-              this.queryResolver = null;
-              reject(err);
-            }
-          });
-        });
-      } catch {
-        // Fall through to dedicated handshake socket
-      }
+    if (this.activeQueryPromise) {
+      return this.activeQueryPromise;
     }
 
-    return new Promise((resolve, reject) => {
-      const tempSocket = new net.Socket();
-      tempSocket.setTimeout(3000);
-
-      let buffer = Buffer.alloc(0);
-
-      tempSocket.connect(this.port, this.host, () => {
-        tempSocket.write(queryFrame);
+    this.activeQueryPromise = new Promise<Uint8Array>((resolve, reject) => {
+      this.commandQueue.push({
+        opcodeDesc: 'Status Query',
+        frame: queryFrame,
+        resolve,
+        reject,
+        isQuery: true,
       });
-
-      tempSocket.on('data', (chunk) => {
-        buffer = Buffer.concat([buffer, chunk]);
-        if (buffer.length >= 13) {
-          const payloadLen = (buffer[11]! << 8) | buffer[12]!;
-          if (buffer.length >= 13 + payloadLen) {
-            tempSocket.destroy();
-            resolve(new Uint8Array(buffer));
-          }
-        }
-      });
-
-      tempSocket.on('error', (err) => {
-        tempSocket.destroy();
-        reject(err);
-      });
-
-      tempSocket.on('timeout', () => {
-        tempSocket.destroy();
-        reject(new Error(`Timeout reading telemetry from ${this.host}:${this.port}`));
-      });
+      this.processCommandQueue();
+    }).finally(() => {
+      this.activeQueryPromise = null;
     });
+
+    return this.activeQueryPromise;
   }
 
   async setPower(on: boolean): Promise<boolean> {
     const prev = { ...this.state };
+    const seq = ++this.powerSequenceId;
+
+    if (this.pendingRefreshTimer) {
+      clearTimeout(this.pendingRefreshTimer);
+      this.pendingRefreshTimer = null;
+    }
+
     const frame = SpnetCodec.encodePower(on);
     await this.writeControlPacket(`Power ${on ? 'ON' : 'OFF'}`, frame);
     this.state.power = on;
@@ -483,6 +488,11 @@ export class SP530EWiFiDevice implements ILedDevice {
       // Pacing delay (120ms) allows the microcontroller to execute its internal power-on transition.
       await new Promise((r) => setTimeout(r, 120));
 
+      // Guard against race condition: If power was toggled while sleeping, abort restoration!
+      if (this.powerSequenceId !== seq || !this.state.power) {
+        return true;
+      }
+
       try {
         const safeLimit = this.enforceSafetyLimits
           ? (this.safetyBrightnessLimit || this.capabilities.brightnessRange.safetyLimit || 20)
@@ -493,6 +503,8 @@ export class SP530EWiFiDevice implements ILedDevice {
         if (this.state.mode === 'effect' && this.state.effectId) {
           const effectFrame = SpnetCodec.encodeEffectMode(this.state.effectId);
           await this.writeControlPacket(`Restore Effect ${this.state.effectId}`, effectFrame);
+          const playFrame = SpnetCodec.encodeEffectPlay(true);
+          await this.writeControlPacket('Restore EffectPlay', playFrame);
         } else {
           // Assert Static Mode 1 before restoring color to release any sound mode lock
           const modeFrame = SpnetCodec.encodeStaticMode();
@@ -511,16 +523,24 @@ export class SP530EWiFiDevice implements ILedDevice {
       }
     }
 
-    // Defer telemetry refresh by 350ms to avoid socket contention with the LED RMT driver
-    setTimeout(() => {
+    // Schedule debounced telemetry verification with cancellation
+    this.scheduleDeferredRefresh(seq, 350);
+    return true;
+  }
+
+  private scheduleDeferredRefresh(seq: number, delayMs = 350) {
+    if (this.pendingRefreshTimer) {
+      clearTimeout(this.pendingRefreshTimer);
+    }
+    this.pendingRefreshTimer = setTimeout(() => {
+      this.pendingRefreshTimer = null;
+      if (this.powerSequenceId !== seq) return;
       this.refreshState().then((refreshed) => {
         this.diagnostics?.log('info', 'VERIFY', `Hardware telemetry confirmed Power state: ${refreshed.power ? 'ON' : 'OFF'}`);
       }).catch((err: any) => {
         this.diagnostics?.log('debug', 'VERIFY', `Post-power verification: ${err.message}`);
       });
-    }, 350);
-
-    return true;
+    }, delayMs);
   }
 
   async setBrightness(brightness: number): Promise<boolean> {
@@ -573,16 +593,32 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   async setEffect(effectId: number, speed?: number): Promise<boolean> {
     const prev = { ...this.state };
-    // Opcode 0x53: [mode = 0x02 (Dynamic), effect = effectId] (2 bytes)
-    const frame = SpnetCodec.encodeEffectMode(effectId);
-    await this.writeControlPacket(`EffectMode ${effectId}`, frame);
+    // Opcode 0x53: [mode = 0x03 (Dynamic Color), effect = effectId] (2 bytes)
+    const modeFrame = SpnetCodec.encodeEffectMode(effectId);
+    await this.writeControlPacket(`EffectMode ${effectId} (Mode 3)`, modeFrame);
+
+    // Unpause/play the animation engine
+    const playFrame = SpnetCodec.encodeEffectPlay(true);
+    await this.writeControlPacket('EffectPlay (Resume)', playFrame);
+
+    // Ensure pattern length matches configured strip pixel count
+    const pixelLen = this.capabilities.maxPixelCount || 60;
+    const lenFrame = SpnetCodec.encodeEffectLength(Math.min(150, pixelLen));
+    await this.writeControlPacket(`EffectLength (${pixelLen} px)`, lenFrame);
 
     if (speed !== undefined) {
       const clampedSpeed = Math.max(1, Math.min(100, Math.round(speed)));
-      const hardwareSpeed = Math.round((clampedSpeed / 100) * 255);
+      // Hardware dynamic effect speed range is 1 to 10
+      const hardwareSpeed = Math.max(1, Math.min(10, Math.round((clampedSpeed / 100) * 9) + 1));
       const speedFrame = SpnetCodec.encodeEffectSpeed(hardwareSpeed);
-      await this.writeControlPacket(`EffectSpeed ${clampedSpeed}%`, speedFrame);
+      await this.writeControlPacket(`EffectSpeed ${clampedSpeed}% (hw: ${hardwareSpeed}/10)`, speedFrame);
       this.state.effectSpeed = clampedSpeed;
+    }
+
+    // If color is available, sync effect color (Opcode 0x57)
+    if (this.state.color && (this.state.color.r > 0 || this.state.color.g > 0 || this.state.color.b > 0)) {
+      const colorFrame = SpnetCodec.encodeEffectColor(this.state.color.r, this.state.color.g, this.state.color.b);
+      await this.writeControlPacket(`EffectColor RGB(${this.state.color.r},${this.state.color.g},${this.state.color.b})`, colorFrame);
     }
 
     this.state.mode = 'effect';
@@ -596,14 +632,15 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   async setMusicMode(modeId: number, sensitivity?: number): Promise<boolean> {
     const prev = { ...this.state };
-    // Opcode 0x53: [mode = 0x03 (Sound Mode), effect = modeId] (2 bytes)
+    // Opcode 0x53: [mode = 0x05 (Sound Mode for SPI RGB), effect = modeId] (2 bytes)
     const modeFrame = SpnetCodec.encodeSoundMode(modeId);
-    await this.writeControlPacket(`MusicMode (Mode 3, Effect ${modeId})`, modeFrame);
+    await this.writeControlPacket(`MusicMode (Mode 5, Effect ${modeId})`, modeFrame);
 
     if (sensitivity !== undefined) {
-      const sensByte = Math.max(0, Math.min(255, Math.round((sensitivity / 100) * 255)));
-      const sensFrame = SpnetCodec.buildControlFrame(SpnetCodec.CMD.AUDIO_GAIN, new Uint8Array([sensByte]));
-      await this.writeControlPacket(`MusicSensitivity ${sensitivity}%`, sensFrame);
+      // Audio gain 1-16
+      const gain = Math.max(1, Math.min(16, Math.round((sensitivity / 100) * 15) + 1));
+      const gainFrame = SpnetCodec.encodeAudioGain(gain);
+      await this.writeControlPacket(`AudioGain ${gain}`, gainFrame);
     }
 
     this.state.mode = 'music';

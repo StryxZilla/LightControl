@@ -485,6 +485,47 @@
   - All 82 unit tests passing (`npm test`).
   - Authored recovery script `scripts/restore-sp530e-modes.ts` to restore the physical controller to Mode 1.
 
+### 2026-10-28 (v0.4.6 Release: Dynamic Effects & Power Cycling Serialization Fixes)
+- **User Hardware Report**:
+  - *"Static color changing worked. Off and on seemed to work but then it got stuck in a non-responsive state. Dynamic modes did not work."*
+- **Root Cause Analysis**:
+  1. **Dynamic Modes Failure**:
+     - Referenced `research/references/sptech_effects.py` (UniLED dev_v3 branch) defining `SPTechFX`:
+       - `MODE_STATIC_COLOR`: `0x01`
+       - `MODE_STATIC_WHITE`: `0x02` (PWM / CCT strips only)
+       - `MODE_DYNAMIC_COLOR`: `0x03` (SPI addressable RGB effects 1-142)
+       - `MODE_DYNAMIC_WHITE`: `0x04`
+       - `MODE_SOUND_COLOR`: `0x05` (SPI addressable RGB music modes 1-18)
+       - `MODE_SOUND_WHITE`: `0x06`
+       - `MODE_CUSTOM_SOLID`: `0x07`
+       - `MODE_CUSTOM_GRADIENT`: `0x08`
+     - For the user's SPI WS2812B RGB strip (`CFG_86`), sending Mode `0x02` attempted to invoke PWM Static White, which the controller rejected.
+     - Dynamic animation requires unpausing the engine via Opcode `0x5D [0x01]` (`EFFECT_PLAY`), ensuring strip pattern length (`0x55`), and scaling speed to the Sperll hardware range (1-10).
+     - `SpnetCodec.decodeResponse` incorrectly mapped mode `0x03` to `music` instead of `effect`.
+  2. **Controller Freeze During Rapid ON/OFF Cycling**:
+     - `sendQueryPacket()` bypassed the command queue and used an uncoordinated fallback creating a secondary `tempSocket` on port 8587.
+     - The ESP32 lwIP stack dropped connections and entered socket deadlock when two sockets connected to port 8587.
+     - Rapid ON/OFF clicks allowed the un-cancelled 120ms delay in `setPower(true)` to wake up after `setPower(false)`, re-asserting color onto an OFF strip and scheduling colliding telemetry queries.
+- **Engineering Fixes Applied (v0.4.6)**:
+  - `packages/adapters/src/sp530e/spnet-codec.ts`:
+    - `encodeEffectMode(effectId)`: Transmits `0x53 [0x03, effectId]` (`MODE_DYNAMIC_COLOR`).
+    - `encodeSoundMode(modeId)`: Transmits `0x53 [0x05, modeId]` (`MODE_SOUND_COLOR`).
+    - `encodeEffectPlay(play)`: Added Opcode `0x5D [0x01 = Play, 0x00 = Pause]`.
+    - `encodeEffectLength(length)`: Added Opcode `0x55 [length 1-150]`.
+    - `encodeEffectSpeed(speed)`: Scaled to hardware range `1-10`.
+    - `encodeEffectColor(r, g, b)`: Added Opcode `0x57 [R, G, B]`.
+    - `decodeResponse`: Corrected mode mapping (`0x03` = `effect`, `0x05` = `music`, `0x01` = `solid`).
+  - `packages/adapters/src/sp530e/sp530e-wifi-adapter.ts`:
+    - Completely eliminated `tempSocket`.
+    - Unified telemetry queries into the FIFO command queue (`isQuery: true`), ensuring zero concurrent socket writes and strict serial transmission.
+    - Added `powerSequenceId` cancellation token to prevent stale Power ON restoration if Power OFF is clicked.
+    - Debounced and coalesced telemetry queries with `pendingRefreshTimer` and `activeQueryPromise`.
+    - `setEffect` now transmits `0x53 [0x03, effectId]`, `0x5D [0x01]` (`EffectPlay`), `0x55 [pixelLen]` (`EffectLength`), and `0x54 [speed]` (`EffectSpeed`).
+  - `tests/adapters/sp530e-tcp-regression.test.ts`:
+    - Added `Rapid Power ON/OFF cycling: cancels obsolete color restoration and maintains single connection`.
+    - Updated mode assertions for Mode 3 (Dynamic) and Mode 5 (Music).
+  - 83 of 83 unit tests passing (`npm test`).
+
 ---
 
 ## Status of Hardware Verification
