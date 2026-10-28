@@ -337,6 +337,23 @@
 
 ---
 
+### Phase 9: Live Diagnostic Verification & Rescan Concurrency Resolution (Completed)
+- **Live User Diagnostic Verification**:
+  - Validated live desktop diagnostic log exported by user to `C:\Users\Andy\Desktop\LightControl-Diagnostics-2026-10-28T01-53-52-610Z.txt`.
+  - Confirmed persistent connection held open without timeout (over 32 consecutive seconds with zero socket drops, proving 4s idle timeout bug is fully resolved).
+  - Confirmed empirical wire transmission of:
+    - `[Color RGB(0,255,0)]` (18B): `53505445434800035800000005030400ff00`
+    - `[Power OFF]` (16B): `53505445434800035800000003030100`
+    - `[Power ON]` (16B): `53505445434800035800000003030101`
+  - Verified exported log formatting, timestamps with milliseconds, category logging, and native Electron file-save integration.
+- **Probe Socket Concurrency Fix**:
+  - Diagnosed disconnection cause during rescan: secondary probe socket triggered ESP32-C3 single-connection FIN/RST.
+  - Implemented `alreadyConnected` bypass in `SP530EWiFiAdapter.probeHost()` so active connected sessions are preserved across background rescans without opening concurrent probe sockets.
+  - Added discovery fallback ensuring default configured target device remains available even when offline or when single-client limits prevent secondary probing.
+  - Maintained 77/77 passing unit tests across the test suite.
+
+---
+
 ## Status of Hardware Verification
 - **BanlanX SP530E**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE** (tested via live Wi-Fi TCP port 8587 on `192.168.86.34:8587`).
 - **QuinLED dig2go (WLED)**: **SIMULATOR-TESTED & VERIFIED** (all API calls, presets, segments, and WebSocket sync pass against local mock server; physical hardware validation pending device delivery).

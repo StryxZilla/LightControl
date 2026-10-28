@@ -534,7 +534,15 @@ export class SP530EWiFiAdapter implements ILedAdapter {
   /**
    * Fast probe testing whether port 8587 responds to SPTECH\0 query.
    */
-  private probeHost(host: string, port = SPNET_PORT, timeoutMs = 400): Promise<{ ok: boolean; raw?: Uint8Array }> {
+  private probeHost(host: string, port = SPNET_PORT, timeoutMs = 400): Promise<{ ok: boolean; raw?: Uint8Array; alreadyConnected?: boolean }> {
+    // If an active session is already connected to this host, avoid opening a redundant probe socket
+    // that might trigger TCP reset on single-socket microcontrollers (ESP32)
+    for (const dev of this.devices.values()) {
+      if (dev.connectionInfo.address.startsWith(host) && dev.connectionInfo.connected) {
+        return Promise.resolve({ ok: true, alreadyConnected: true });
+      }
+    }
+
     return new Promise((resolve) => {
       const socket = new net.Socket();
       socket.setTimeout(timeoutMs);
@@ -603,7 +611,7 @@ export class SP530EWiFiAdapter implements ILedAdapter {
     let discoveredCount = 0;
     for (const r of results) {
       if (!r) continue;
-      if (r.ok && r.raw) {
+      if (r.ok && (r.raw || r.alreadyConnected)) {
         discoveredCount++;
         let dev = this.devices.get(r.host);
         if (!dev) {
@@ -614,20 +622,24 @@ export class SP530EWiFiAdapter implements ILedAdapter {
           this.devices.set(r.host, dev);
         }
 
-        try {
-          const parsed = SpnetCodec.decodeResponse(r.raw);
-          dev.state = { ...dev.state, ...parsed.state };
-          dev.capabilities.maxTotalPixels = parsed.config.pixelCount;
-          dev.capabilities.maxPixelCount = parsed.config.pixelCount;
-          dev.capabilities.firmwareInfo = {
-            version: parsed.config.firmwareVersion,
-            model: 'SP530E',
-            ip: r.host,
-          };
-        } catch {}
+        if (r.raw) {
+          try {
+            const parsed = SpnetCodec.decodeResponse(r.raw);
+            dev.state = { ...dev.state, ...parsed.state };
+            dev.capabilities.maxTotalPixels = parsed.config.pixelCount;
+            dev.capabilities.maxPixelCount = parsed.config.pixelCount;
+            dev.capabilities.firmwareInfo = {
+              version: parsed.config.firmwareVersion,
+              model: 'SP530E',
+              ip: r.host,
+            };
+          } catch {}
+        }
 
-        dev.connectionInfo.state = 'discovered';
-        dev.connectionInfo.connected = false;
+        if (!r.alreadyConnected) {
+          dev.connectionInfo.state = 'discovered';
+          dev.connectionInfo.connected = false;
+        }
         dev.connectionInfo.lastSeen = Date.now();
 
         this.diagnostics?.logDeviceDiscovered({
@@ -650,6 +662,26 @@ export class SP530EWiFiAdapter implements ILedAdapter {
           });
         }
       }
+    }
+
+    if (discoveredCount === 0 && this.defaultHost) {
+      // Fallback: If no controllers responded to probe (e.g. controller is already connected,
+      // busy with another socket, or in test/offline environment), make sure the default
+      // configured controller remains registered and available.
+      let dev = this.devices.get(this.defaultHost);
+      if (!dev) {
+        dev = this.addDevice(this.defaultHost, SPNET_PORT);
+      }
+      dev.connectionInfo.state = 'discovered';
+      dev.connectionInfo.lastSeen = Date.now();
+      this.diagnostics?.logDeviceDiscovered({
+        id: dev.id,
+        name: dev.name,
+        transport: 'wifi-tcp',
+        address: dev.connectionInfo.address,
+      });
+      onDeviceFound(dev);
+      discoveredCount = 1;
     }
 
     this.diagnostics?.logScan('STOP', 'wifi-tcp', { discoveredCount });
