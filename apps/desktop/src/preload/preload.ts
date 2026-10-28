@@ -41,6 +41,13 @@ const api: ElectronApi = {
     ipcRenderer.invoke('presets:apply', deviceId, presetId),
 
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
+  copyToClipboard: (text: string) => ipcRenderer.invoke('system:copy-clipboard', text),
+  exportLogsTxt: (content: string) => ipcRenderer.invoke('diagnostics:export-txt', content),
+  onDiagnosticLog: (callback) => {
+    const handler = (_: IpcRendererEvent, log: any) => callback(log);
+    ipcRenderer.on('diagnostics:new-log', handler);
+    return () => ipcRenderer.removeListener('diagnostics:new-log', handler);
+  },
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings: Partial<AppSettings>) =>
     ipcRenderer.invoke('settings:update', settings),

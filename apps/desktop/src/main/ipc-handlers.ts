@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app } from 'electron';
+import { ipcMain, BrowserWindow, app, clipboard, dialog } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
@@ -127,6 +127,13 @@ export class AppIpcManager {
     this.deviceManager.getStateManager().subscribe((event) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send('device:state-changed', event);
+      }
+    });
+
+    // Forward real-time diagnostics logs to renderer
+    this.diagnostics.onLog((entry) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('diagnostics:new-log', entry);
       }
     });
 
@@ -336,12 +343,43 @@ export class AppIpcManager {
 
     ipcMain.handle('diagnostics:get', async () => {
       return {
-        version: '0.1.0',
+        version: '0.2.0',
         platform: process.platform,
         uptimeSec: Math.round(process.uptime()),
         logFilePath: this.diagnostics.getLogFilePath(),
-        logs: this.diagnostics.getRecentLogs(100),
+        logs: this.diagnostics.getRecentLogs(300),
       };
+    });
+
+    ipcMain.handle('system:copy-clipboard', async (_, text: string) => {
+      try {
+        if (typeof text === 'string') {
+          clipboard.writeText(text);
+          return true;
+        }
+      } catch {}
+      return false;
+    });
+
+    ipcMain.handle('diagnostics:export-txt', async (_, content: string) => {
+      try {
+        const result = await dialog.showSaveDialog(mainWindow, {
+          title: 'Export Diagnostic Telemetry Log',
+          defaultPath: `LightControl-Diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`,
+          filters: [
+            { name: 'Text Documents (*.txt)', extensions: ['txt'] },
+            { name: 'All Files (*.*)', extensions: ['*'] },
+          ],
+        });
+        if (!result.canceled && result.filePath) {
+          fs.writeFileSync(result.filePath, content, 'utf8');
+          this.diagnostics.log('info', 'DIAGNOSTICS', `Exported diagnostic log to: ${result.filePath}`);
+          return { success: true, filePath: result.filePath };
+        }
+      } catch (err: any) {
+        this.diagnostics.log('error', 'DIAGNOSTICS', `Failed exporting diagnostic log: ${err.message}`);
+      }
+      return { success: false };
     });
 
     ipcMain.handle('diagnostics:export', async () => {

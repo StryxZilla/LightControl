@@ -31,6 +31,18 @@ export interface AppSettings {
   wifiPort: number;
 }
 
+export interface DiagnosticLogItem {
+  timestamp: number;
+  isoTime?: string;
+  level: string;
+  category: string;
+  action?: string;
+  deviceId?: string;
+  transport?: string;
+  message: string;
+  data?: any;
+}
+
 export interface ElectronApi {
   getDevices(): Promise<SerializedDevice[]>;
   startDiscovery(): Promise<SerializedDevice[]>;
@@ -56,8 +68,11 @@ export interface ElectronApi {
     platform: string;
     uptimeSec: number;
     logFilePath?: string | null;
-    logs: Array<{ level: string; message: string; timestamp: number }>;
+    logs: DiagnosticLogItem[];
   }>;
+  copyToClipboard?(text: string): Promise<boolean>;
+  exportLogsTxt?(content: string): Promise<{ success: boolean; filePath?: string }>;
+  onDiagnosticLog?(callback: (log: DiagnosticLogItem) => void): () => void;
   getSettings(): Promise<AppSettings>;
   updateSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
   onStateChange(callback: (event: DeviceStateChangeEvent) => void): () => void;

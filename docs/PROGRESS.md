@@ -315,6 +315,26 @@
   - `docs/SP530E_CONFIGURATION_AUDIT.md`: Device configuration and identification audit report.
   - `docs/SP530E_CONNECTION_FIXES.md`: Connection fixes and implementation report.
 
+### Phase 8: BanlanX UI Parity, Copyable Diagnostic Log Viewer & Live Control Modes (2026-10-27)
+- **Problem Diagnosis**:
+  - Addressed why controls did not visibly affect the physical LED strip: identified `dryRun: true` safe default in `AppIpcManager` operating in silent simulation mode without visual indication.
+  - Resolved unselectable log text caused by CSS `select-none` on diagnostic items.
+  - Implemented missing clipboard copy actions and native text export.
+  - Confirmed BanlanX UI hierarchy and navigation flows using live ADB UIAutomator tree inspections on `emulator-5554` running `com.spled.scenex`.
+- **Implemented Fixes & Features**:
+  - `apps/desktop/src/renderer/screens/DiagnosticsScreen.tsx`: Complete overhaul with full text selection (`select-text cursor-text`), "Copy All" and "Copy Selected" buttons, native "Export to .txt" save dialog, "Clear Display" button, "Pause / Resume Auto-Scroll" toggle with active scroll ref, text search box, category filters (SCAN, DISCOVERY, CONNECTION, TRANSMIT, RECEIVE, PROTOCOL, IPC, SYSTEM), severity filters (INFO, WARN, ERROR, DEBUG), millisecond timestamps (`HH:mm:ss.SSS`), and persistent file path display.
+  - `packages/core/src/diagnostics.ts`: Added reactive `onLog` event dispatcher to broadcast log entries in real-time.
+  - `apps/desktop/src/main/ipc-handlers.ts`: Wired `diagnostics.onLog` to push real-time logs via `diagnostics:new-log`, added `system:copy-clipboard` with Electron `clipboard.writeText`, and `diagnostics:export-txt` with Electron `dialog.showSaveDialog`.
+  - `apps/desktop/src/preload/`: Exposed `copyToClipboard`, `exportLogsTxt`, and `onDiagnosticLog`.
+  - `apps/desktop/src/renderer/components/Header.tsx`: Added interactive "SIMULATION (DRY-RUN)" vs "LIVE HARDWARE" toggle badge.
+  - `apps/desktop/src/renderer/components/Sidebar.tsx`: Updated version to `v0.2.0 • Windows 10/11`.
+  - Added new unit test `tests/core/diagnostics.test.ts` covering persistent logging, redaction, and `onLog` subscriptions (test suite expanded to 77/77 passing tests).
+- **Documentation Deliverables**:
+  - `docs/BANLANX_UI_PARITY.md`: BanlanX mobile app vs desktop comparison, screen flows, and capability mapping.
+  - `docs/DEVICE_SETTINGS_STATUS.md`: Complete device settings status and parameter inventory.
+  - `docs/DIAGNOSTIC_LOGGING.md`: Diagnostics architecture, selectable text, and export tools.
+  - `docs/SP530E_CURRENT_BLOCKERS.md`: Root-cause blocker analysis, 4-second timeout fix, dry-run mode, and testing checklist.
+
 ---
 
 ## Status of Hardware Verification
@@ -327,7 +347,7 @@
 - **Compiler / Type Errors**: **0** (verified with `npx tsc --noEmit` across all directories).
 - **Runtime Crashes**: **0** (verified in Electron headless startup and Node test runner).
 - **Broken Controls / State Defects**: **0** (all 11 desktop screens and controls verified).
-- **Test Failures**: **0** (75/75 passing in 770 ms).
+- **Test Failures**: **0** (77/77 passing in ~800 ms).
 - **Blocking Bugs**: **0**.
 - **Pending External Dependency**: Physical delivery of QuinLED dig2go controller for final physical validation per `docs/DIG2GO_HARDWARE_TEST_PLAN.md`.
 

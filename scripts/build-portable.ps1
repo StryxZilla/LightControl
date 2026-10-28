@@ -33,7 +33,7 @@ Write-Host "[2/6] Generating application icons..." -ForegroundColor Yellow
 powershell -ExecutionPolicy Bypass -File (Join-Path $root "scripts\generate-icon.ps1")
 
 # 4. Run full test suite
-Write-Host "[3/6] Running full test suite (75 tests)..." -ForegroundColor Yellow
+Write-Host "[3/6] Running full test suite (77 tests)..." -ForegroundColor Yellow
 Push-Location $root
 $testOutput = npm test
 if ($LASTEXITCODE -ne 0) {

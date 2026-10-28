@@ -37,6 +37,9 @@ test('Desktop preload bundle exposes secure IPC methods', () => {
   assert.ok(content.includes('device:set-music-mode'), 'Preload must register device:set-music-mode');
   assert.ok(content.includes('presets:get-all'), 'Preload must register presets:get-all');
   assert.ok(content.includes('diagnostics:get'), 'Preload must register diagnostics:get');
+  assert.ok(content.includes('system:copy-clipboard'), 'Preload must register system:copy-clipboard');
+  assert.ok(content.includes('diagnostics:export-txt'), 'Preload must register diagnostics:export-txt');
+  assert.ok(content.includes('diagnostics:new-log'), 'Preload must listen to diagnostics:new-log');
   assert.ok(content.includes('settings:get'), 'Preload must register settings:get');
   assert.ok(content.includes('device:add-wled'), 'Preload must register device:add-wled');
 });

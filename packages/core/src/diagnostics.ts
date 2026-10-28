@@ -64,6 +64,7 @@ export function redactSensitiveData(obj: any): any {
 export class DiagnosticsService {
   private logs: DiagnosticLogEntry[] = [];
   private stats = new Map<string, DeviceTelemetryStats>();
+  private listeners = new Set<(entry: DiagnosticLogEntry) => void>();
   private readonly maxLogs: number;
   private logFilePath: string | null = null;
 
@@ -127,6 +128,20 @@ export class DiagnosticsService {
         // Fallback gracefully without breaking main process
       }
     }
+
+    // Notify live in-process listeners
+    for (const listener of this.listeners) {
+      try {
+        listener(entry);
+      } catch {}
+    }
+  }
+
+  onLog(listener: (entry: DiagnosticLogEntry) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   // Convenience methods for Phase 2 diagnostic tracing

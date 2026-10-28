@@ -12,6 +12,8 @@ export const Header: React.FC = () => {
     startDiscovery,
     isScanning,
     statusMessage,
+    settings,
+    updateSettings,
   } = useDevice();
 
   if (!selectedDevice) {
@@ -66,6 +68,26 @@ export const Header: React.FC = () => {
           />
           {selectedDevice.connectionInfo.state.toUpperCase()}
         </span>
+
+        {/* Live Hardware vs Dry-Run Mode Toggle Badge */}
+        <button
+          onClick={() => updateSettings({ dryRun: !settings.dryRun })}
+          title={
+            settings.dryRun
+              ? 'Simulation Active: Wire transmission is simulated in-memory. Click to toggle LIVE HARDWARE transmission.'
+              : 'Live Hardware Active: Wire packets are sent to physical controller. Click to switch to SIMULATION.'
+          }
+          className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold border transition-all cursor-pointer ${
+            settings.dryRun
+              ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+              : 'bg-blue-500/15 text-cyan-300 border-blue-500/30 hover:bg-blue-500/25'
+          }`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${settings.dryRun ? 'bg-amber-400' : 'bg-cyan-400 animate-pulse'}`}
+          />
+          <span>{settings.dryRun ? 'DRY-RUN' : 'LIVE'}</span>
+        </button>
       </div>
 
       {/* Global Status Banner if any */}
