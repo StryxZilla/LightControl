@@ -21,6 +21,7 @@ namespace Sp530eBleHelper
         private static BluetoothLEDevice _connectedDevice;
         private static GattCharacteristic _activeCharacteristic;
         private static JavaScriptSerializer _json = new JavaScriptSerializer();
+        private static readonly Dictionary<string, BluetoothAddressType> _addressTypes = new Dictionary<string, BluetoothAddressType>(StringComparer.OrdinalIgnoreCase);
 
         static void Main(string[] args)
         {
@@ -106,9 +107,25 @@ namespace Sp530eBleHelper
                         { "isSP530E", name.IndexOf("SP530E", StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("SP630E", StringComparison.OrdinalIgnoreCase) >= 0 }
                     };
                 }
+                lock (_addressTypes)
+                {
+                    _addressTypes[addr] = e.BluetoothAddressType;
+                }
+            };
+
+            watcher.Stopped += (s, e) =>
+            {
+                SendLog("Watcher stopped with error: " + e.Error + ", status: " + watcher.Status);
             };
 
             watcher.Start();
+            int waited = 0;
+            while (watcher.Status == BluetoothLEAdvertisementWatcherStatus.Created && waited < 1500)
+            {
+                Thread.Sleep(50);
+                waited += 50;
+            }
+            SendLog("Watcher status after waiting: " + watcher.Status);
             Thread.Sleep(timeoutMs);
             watcher.Stop();
 
@@ -130,8 +147,69 @@ namespace Sp530eBleHelper
             {
                 ulong ulongAddr = ulong.Parse(addressHex.Replace(":", "").Replace("-", ""), NumberStyles.HexNumber);
 
-                var opDev = BluetoothLEDevice.FromBluetoothAddressAsync(ulongAddr);
-                var device = AwaitResult(opDev, 5000);
+                BluetoothAddressType preferredType = BluetoothAddressType.Random;
+                lock (_addressTypes)
+                {
+                    if (_addressTypes.ContainsKey(addressHex))
+                    {
+                        preferredType = _addressTypes[addressHex];
+                    }
+                }
+
+                BluetoothLEDevice device = null;
+                try
+                {
+                    var opDev = BluetoothLEDevice.FromBluetoothAddressAsync(ulongAddr, preferredType);
+                    device = AwaitResult(opDev, 3000);
+                }
+                catch { }
+
+                if (device == null)
+                {
+                    try
+                    {
+                        BluetoothAddressType altType = (preferredType == BluetoothAddressType.Random)
+                            ? BluetoothAddressType.Public
+                            : BluetoothAddressType.Random;
+                        var opDev = BluetoothLEDevice.FromBluetoothAddressAsync(ulongAddr, altType);
+                        device = AwaitResult(opDev, 3000);
+                    }
+                    catch { }
+                }
+
+                if (device == null)
+                {
+                    // If not in cache, start active advertisement watcher to find device over the air
+                    var connectWatcher = new BluetoothLEAdvertisementWatcher();
+                    connectWatcher.ScanningMode = BluetoothLEScanningMode.Active;
+                    var foundEvent = new AutoResetEvent(false);
+                    BluetoothAddressType activeType = BluetoothAddressType.Random;
+
+                    connectWatcher.Received += (s, e) =>
+                    {
+                        if (e.BluetoothAddress == ulongAddr)
+                        {
+                            activeType = e.BluetoothAddressType;
+                            foundEvent.Set();
+                        }
+                    };
+
+                    connectWatcher.Start();
+                    if (foundEvent.WaitOne(4000))
+                    {
+                        connectWatcher.Stop();
+                        try
+                        {
+                            var opDev = BluetoothLEDevice.FromBluetoothAddressAsync(ulongAddr, activeType);
+                            device = AwaitResult(opDev, 4000);
+                        }
+                        catch { }
+                    }
+                    else
+                    {
+                        connectWatcher.Stop();
+                    }
+                }
 
                 if (device == null)
                 {
