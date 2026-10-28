@@ -79,11 +79,19 @@ test('SpnetCodec encodes control frames with 13-byte SPTECH header and correct p
   assert.strictEqual(red[12], 0x04); // Payload len = 4
   assert.deepStrictEqual(Array.from(red.subarray(13)), [255, 0, 0, 255]);
 
-  // Dynamic Effect Mode 1: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0001 + [1]
+  // Dynamic Effect Mode 1: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0002 + [0x02, 1]
   const effect = SpnetCodec.encodeEffectMode(1);
-  assert.strictEqual(effect.length, 14);
+  assert.strictEqual(effect.length, 15);
   assert.strictEqual(effect[7], 0x53); // Command: LIGHT_MODE
-  assert.deepStrictEqual(Array.from(effect.subarray(13)), [1]);
+  assert.strictEqual(effect[12], 0x02); // Payload len = 2
+  assert.deepStrictEqual(Array.from(effect.subarray(13)), [0x02, 1]);
+
+  // Static Mode: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0002 + [0x01, 0x01]
+  const staticMode = SpnetCodec.encodeStaticMode();
+  assert.strictEqual(staticMode.length, 15);
+  assert.strictEqual(staticMode[7], 0x53);
+  assert.strictEqual(staticMode[12], 0x02);
+  assert.deepStrictEqual(Array.from(staticMode.subarray(13)), [0x01, 0x01]);
 
   // Effect Speed: SPTECH\0 + 0x54 + 0x00 + 0x0000 + 0x0001 + [128]
   const speed = SpnetCodec.encodeEffectSpeed(128);

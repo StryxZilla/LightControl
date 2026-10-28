@@ -58,7 +58,6 @@ export class AppIpcManager {
 
     this.wifiAdapter = new SP530EWiFiAdapter(this.settings.wifiHost, this.diagnostics);
     this.wifiAdapter.dryRun = this.settings.dryRun;
-    this.wifiAdapter.setBleTransport(this.bleTransport, '7C4FADEB2AAA');
 
     this.wledAdapter = new WledAdapter();
 

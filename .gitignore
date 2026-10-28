@@ -75,3 +75,5 @@ Desktop.ini
 # Antigravity agent scratch & cache
 .gemini/
 scratch/
+__pycache__/
+*.pyc

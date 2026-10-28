@@ -195,3 +195,67 @@ test('Physical Re-illumination: setPower(true) re-asserts active color and brigh
     server.close();
   }
 });
+
+test('SPTech Light Mode Switching: setEffect sets Mode 2, setColor asserts Mode 1, and setMusicMode sets Mode 3', async () => {
+  const commandsSent: Uint8Array[] = [];
+  const fixturePath = path.resolve('protocol/fixtures/sp530e_status_response.bin');
+  const fixtureData = fs.readFileSync(fixturePath);
+
+  const server = net.createServer((socket) => {
+    socket.on('data', (chunk) => {
+      commandsSent.push(new Uint8Array(chunk));
+      if (chunk.length >= 8 && chunk[7] === 0x02) {
+        socket.write(fixtureData);
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as net.AddressInfo).port;
+  const device = new SP530EWiFiDevice('127.0.0.1', port, 'Mode Switch Test');
+
+  try {
+    await device.connect();
+    commandsSent.length = 0;
+
+    // 1. Switch to Dynamic Effect 15
+    await device.setEffect(15);
+    await new Promise((r) => setTimeout(r, 50));
+    const effectCmd = commandsSent.find((c) => c[7] === 0x53);
+    assert.ok(effectCmd, 'Must transmit 0x53 for EffectMode');
+    assert.strictEqual(effectCmd[12], 0x02, 'Payload length must be 2 bytes');
+    assert.strictEqual(effectCmd[13], 0x02, 'Byte 0 must be Mode 2 (Dynamic Mode)');
+    assert.strictEqual(effectCmd[14], 15, 'Byte 1 must be Effect ID 15');
+    assert.strictEqual(device.state.mode, 'effect');
+
+    commandsSent.length = 0;
+
+    // 2. Switch back to Solid Color (Red) from Effect mode
+    await device.setColor({ r: 255, g: 0, b: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    // Must transmit 0x53 (Mode 1 Static) AND 0x52 (Static Color)
+    const modeCmds = commandsSent.filter((c) => c[7] === 0x53);
+    assert.ok(modeCmds.length >= 1, 'Must transmit 0x53 to switch mode to Static Color');
+    const staticModeCmd = modeCmds[0]!;
+    assert.strictEqual(staticModeCmd[13], 0x01, 'Byte 0 must be Mode 1 (Static Mode)');
+    assert.strictEqual(staticModeCmd[14], 0x01, 'Byte 1 must be Effect 1');
+
+    const colorCmd = commandsSent.find((c) => c[7] === 0x52);
+    assert.ok(colorCmd, 'Must transmit 0x52 for Color');
+    assert.strictEqual(device.state.mode, 'solid');
+
+    commandsSent.length = 0;
+
+    // 3. Switch to Music Mode 4
+    await device.setMusicMode(4);
+    await new Promise((r) => setTimeout(r, 50));
+    const musicCmd = commandsSent.find((c) => c[7] === 0x53);
+    assert.ok(musicCmd, 'Must transmit 0x53 for MusicMode');
+    assert.strictEqual(musicCmd[13], 0x03, 'Byte 0 must be Mode 3 (Music Mode)');
+    assert.strictEqual(musicCmd[14], 4, 'Byte 1 must be Music Effect 4');
+    assert.strictEqual(device.state.mode, 'music');
+  } finally {
+    await device.disconnect();
+    server.close();
+  }
+});

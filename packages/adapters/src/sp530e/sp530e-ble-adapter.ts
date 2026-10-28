@@ -238,6 +238,12 @@ export class SP530EBleDevice implements ILedDevice {
     }
 
     const prev = { ...this.state };
+    // If not currently in solid mode, assert Static Mode (Mode 1) first
+    if (this.state.mode !== 'solid') {
+      const modeFrame = new Uint8Array([0x53, 0x53, 0x00, 0x01, 0x00, 0x02, 0x01, 0x01]);
+      await this.writeBleFrame('BLE StaticMode (Mode 1)', modeFrame);
+    }
+
     const frame = Sp530eBleCodec.encodeColor(color.r, color.g, color.b, this.nextSequence());
     const hardwareBrightness = Math.round((this.state.brightness / 100) * 255);
     // Verified BanlanX Gen 3 Color frame: 53 52 00 01 00 04 [R] [G] [B] [level]
@@ -264,7 +270,8 @@ export class SP530EBleDevice implements ILedDevice {
     }
 
     const frame = Sp530eBleCodec.encodeEffectMode(effectId, this.nextSequence());
-    const gen3Mode = new Uint8Array([0x53, 0x55, 0x00, 0x01, 0x00, 0x02, (effectId >> 8) & 0xff, effectId & 0xff]);
+    // Verified BanlanX Gen 3 Effect frame: 53 53 00 01 00 02 02 [effectId]
+    const gen3Mode = new Uint8Array([0x53, 0x53, 0x00, 0x01, 0x00, 0x02, 0x02, effectId & 0xff]);
     await this.writeBleFrame(`BLE Effect ${effectId}`, frame, gen3Mode);
 
     this.state.mode = 'effect';
@@ -279,6 +286,10 @@ export class SP530EBleDevice implements ILedDevice {
     }
 
     const prev = { ...this.state };
+    // Verified BanlanX Gen 3 Music frame: 53 53 00 01 00 02 03 [modeId]
+    const gen3Music = new Uint8Array([0x53, 0x53, 0x00, 0x01, 0x00, 0x02, 0x03, modeId & 0xff]);
+    await this.writeBleFrame(`BLE MusicMode ${modeId}`, gen3Music);
+
     this.state.mode = 'music';
     this.state.effectId = modeId;
     this.emitStateChange(prev);

@@ -456,6 +456,37 @@
 
 ---
 
+### Prompt 12: SPTech Light Mode Lockout Resolution (Static & Dynamic Modes Restored) (2026-10-28)
+- **Problem Statement**:
+  - User reported: *"something in our app broke the stable and dynamic modes on the sp530e. they just dont work and only the sound and diy modes work"*.
+  - BanlanX and the Windows app were unable to control solid color or dynamic patterns, while sound reactive and DIY slot modes continued working.
+- **Root Cause Identified**:
+  1. **Opcode `0x53` (`CMD.LIGHT_MODE`) 2-Byte Payload Requirement**:
+     - `SpnetCodec.encodeEffectMode` was sending `0x53` with a 1-byte payload `[id]`.
+     - In the SPTech firmware, Opcode `0x53` strictly requires a 2-byte payload: `[mode, effect]`, where:
+       - `Mode 1`: `MODE_STATIC_COLOR` ("stable" / solid color)
+       - `Mode 2`: `MODE_DYNAMIC_COLOR` (built-in animated effects)
+       - `Mode 3`: `MODE_SOUND_COLOR` (sound / music reactive)
+       - `Mode 4`: `MODE_CUSTOM_SOLID` (DIY solid slots)
+       - `Mode 5`: `MODE_CUSTOM_GRADIENT` (DIY gradient slots)
+     - When `0x53 [0x03]` was sent, the controller switched into **Mode 3 (Sound Mode)**.
+  2. **Firmware State Lockout**:
+     - In Mode 3 (Sound Mode), the ESP32 suspends static color updates and brightness commands, running exclusively on microphone input.
+     - `setColor()` previously sent only `0x52` (`CMD.STATIC_COLOR`), which does not exit Mode 3.
+     - Opcode `0x55` (`EFFECT_LENGTH`) was erroneously transmitted by the BLE bridge with `effectId`, corrupting the effect length register.
+- **Engineering Fixes Applied**:
+  - `SpnetCodec`: Added `encodeLightMode(mode, effect)`, `encodeStaticMode()`, `encodeEffectMode(effectId)`, and `encodeSoundMode(effectId)` with verified 2-byte payloads.
+  - `SP530EWiFiDevice` & `SP530EBleDevice`:
+    - `setColor()` now asserts `StaticMode` (`0x53 [0x01, 0x01]`) whenever transitioning from effect or music modes before transmitting `0x52`.
+    - `setEffect()` transmits `0x53 [0x02, effectId]`.
+    - `setMusicMode()` transmits `0x53 [0x03, modeId]`.
+    - Fixed BLE bridge frames to use Opcode `0x53` instead of the wrong `0x55` length opcode.
+  - Test Suite: Added regression test `SPTech Light Mode Switching: setEffect sets Mode 2, setColor asserts Mode 1, and setMusicMode sets Mode 3`.
+  - All 82 unit tests passing (`npm test`).
+  - Authored recovery script `scripts/restore-sp530e-modes.ts` to restore the physical controller to Mode 1.
+
+---
+
 ## Status of Hardware Verification
 - **BanlanX SP530E**:
   - **Wi-Fi TCP Port 8587**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE**:

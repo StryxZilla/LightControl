@@ -83,28 +83,53 @@ All Wi-Fi control frames use a 13-byte header prefixed by the ASCII magic string
   * 50% (`0x80` = 128): `535054454348005100000000020080`
   * 100% (`0xFF` = 255): `5350544543480051000000000200ff`
 
-### 2.6 Dynamic Effect Mode (`0x53`)
-* **Purpose**: Switch to built-in dynamic effect.
-* **Hex Template**: `53505445434800530000000001[ModeId]` (14 bytes)
-* **Payload**: 1 byte: `[modeId (1-255)]`
-* **Verified Example**: Effect Mode 1: `5350544543480053000000000101`
+### 2.6 Light Mode & Dynamic Effects (`0x53`)
+* **Purpose**: Switch operating mode and active effect.
+* **Hex Template**: `53505445434800530000000002[Mode][Effect]` (15 bytes)
+* **Payload**: 2 bytes:
+  * **Byte 0 (Mode)**:
+    * `0x01`: Static Solid Color mode ("stable")
+    * `0x02`: Dynamic Effect mode
+    * `0x03`: Sound / Music Reactive mode
+    * `0x04`: Custom Solid (DIY) mode
+    * `0x05`: Custom Gradient (DIY) mode
+  * **Byte 1 (Effect)**:
+    * For Mode 1 (Static): `0x01`
+    * For Mode 2 (Dynamic): Effect index `0x01..N` (e.g. 1 = Rainbow Chaser, 2 = Meteor, etc.)
+    * For Mode 3 (Sound): Sound effect index `0x01..N`
+* **Verified Frame Examples**:
+  * **Static Solid Color Mode (Mode 1)**: `535054454348005300000000020101`
+  * **Dynamic Effect 1 (Rainbow)**: `535054454348005300000000020201`
+  * **Dynamic Effect 15**: `53505445434800530000000002020f`
+  * **Sound Reactive Mode (Mode 3, Effect 1)**: `535054454348005300000000020301`
+* **Critical Protocol Nuance (The Mode Lockout Bug)**:
+  * When a 1-byte payload (`[id]`) was sent to Opcode `0x53`, the ESP32 firmware interpreted the single byte as the `Mode` field!
+  * If `id = 3` was sent, the controller switched into **Mode 3 (Sound Reactive mode)**.
+  * In Sound Mode, the ESP32 suspends static pixel updates and brightness dimming, reacting exclusively to microphone input.
+  * Setting a solid RGB color (`0x52`) does **NOT** exit Sound Mode. The driver must explicitly transmit `0x53 [0x01, 0x01]` to return to Static Mode before or alongside `0x52`.
 
 ### 2.7 Effect Speed (`0x54`)
 * **Purpose**: Set dynamic animation speed.
 * **Hex Template**: `53505445434800540000000001[Speed]` (14 bytes)
 * **Payload**: 1 byte: `[speed (0-255)]`
 
-### 2.8 Effect Direction (`0x56`)
+### 2.8 Effect Length (`0x55`)
+* **Purpose**: Set effect segment pattern length (number of active pixel dots in chaser/pattern).
+* **Hex Template**: `53505445434800550000000001[Length]` (14 bytes)
+* **Payload**: 1 byte: `[length (1-150)]`
+* **Warning**: Opcode `0x55` is **Effect Length**, NOT Effect ID. Setting this to 0 or 1 blanks or truncates dynamic animations.
+
+### 2.9 Effect Direction (`0x56`)
 * **Purpose**: Set animation forward / reverse direction.
 * **Hex Template**: `53505445434800560000000001[Dir]` (14 bytes)
 * **Payload**: 1 byte: `[0x00 = Forward, 0x01 = Reverse]`
 
-### 2.9 Audio Input Source (`0x59`)
+### 2.10 Audio Input Source (`0x59`)
 * **Purpose**: Switch sound reactivity between built-in onboard microphone (`inner_mic`) and auxiliary input.
 * **Hex Template**: `53505445434800590000000001[Source]` (14 bytes)
 * **Payload**: 1 byte: `[0x00 = Built-in Mic, 0x01 = Line In]`
 
-### 2.10 Audio Sensitivity / Gain (`0x5A`)
+### 2.11 Audio Sensitivity / Gain (`0x5A`)
 * **Purpose**: Adjust microphone reaction threshold.
 * **Hex Template**: `535054454348005a0000000001[Gain]` (14 bytes)
 * **Payload**: 1 byte: `[gain (1-255)]`

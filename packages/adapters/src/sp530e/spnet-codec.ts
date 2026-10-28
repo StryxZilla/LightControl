@@ -121,12 +121,41 @@ export class SpnetCodec {
   }
 
   /**
-   * Encodes a Dynamic Effect mode selection command over Wi-Fi.
-   * Opcode: 0x53. Payload: [modeId]
+   * Encodes a Light Mode selection command over Wi-Fi (Opcode 0x53).
+   * Verified payload: [mode (1-5), effect (1-N)] (2 bytes)
+   * Mode 1: Static Color (effect = 1)
+   * Mode 2: Dynamic Effects (effect = effectId)
+   * Mode 3: Sound / Music Reactive (effect = soundEffectId)
+   * Mode 4: Custom Solid DIY
+   * Mode 5: Custom Gradient DIY
    */
-  static encodeEffectMode(modeId: number): Uint8Array {
-    const id = Math.max(1, Math.min(255, Math.round(modeId)));
-    return this.buildControlFrame(this.CMD.LIGHT_MODE, new Uint8Array([id]));
+  static encodeLightMode(mode: number, effect = 1): Uint8Array {
+    const m = Math.max(1, Math.min(5, Math.round(mode)));
+    const eff = Math.max(1, Math.min(255, Math.round(effect)));
+    return this.buildControlFrame(this.CMD.LIGHT_MODE, new Uint8Array([m, eff]));
+  }
+
+  /**
+   * Encodes switching to Static Color mode (Mode 1, Effect 1).
+   */
+  static encodeStaticMode(): Uint8Array {
+    return this.encodeLightMode(0x01, 0x01);
+  }
+
+  /**
+   * Encodes a Dynamic Effect mode selection command over Wi-Fi.
+   * Opcode: 0x53. Payload: [mode = 0x02, effect = effectId] (2 bytes)
+   */
+  static encodeEffectMode(effectId: number): Uint8Array {
+    return this.encodeLightMode(0x02, effectId);
+  }
+
+  /**
+   * Encodes a Sound / Music reactive mode selection command over Wi-Fi.
+   * Opcode: 0x53. Payload: [mode = 0x03, effect = effectId] (2 bytes)
+   */
+  static encodeSoundMode(effectId: number): Uint8Array {
+    return this.encodeLightMode(0x03, effectId);
   }
 
   /**
@@ -257,13 +286,19 @@ export class SpnetCodec {
       deviceIp = ipMatch[0];
     }
 
-    const isSolid = (buffer.length > 43 && buffer[43] === 0x01) || modeId === 0;
+    const lightModeNum = buffer.length > 43 ? buffer[43]! : 0x01;
+    let mappedMode: 'solid' | 'effect' | 'music' = 'solid';
+    if (lightModeNum === 0x03) {
+      mappedMode = 'music';
+    } else if (lightModeNum === 0x02 || (lightModeNum !== 0x01 && modeId > 0)) {
+      mappedMode = 'effect';
+    }
 
     const state: LedState = {
       power,
       brightness: brightnessPercent,
       color: { r: rawR, g: rawG, b: rawB },
-      mode: isSolid ? 'solid' : 'effect',
+      mode: mappedMode,
       effectId: modeId,
       effectSpeed,
       activeSegments: segmentCount,
