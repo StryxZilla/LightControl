@@ -343,7 +343,7 @@ export class AppIpcManager {
 
     ipcMain.handle('diagnostics:get', async () => {
       return {
-        version: '0.2.0',
+        version: '0.3.0',
         platform: process.platform,
         uptimeSec: Math.round(process.uptime()),
         logFilePath: this.diagnostics.getLogFilePath(),
