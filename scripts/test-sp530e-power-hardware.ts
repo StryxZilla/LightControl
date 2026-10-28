@@ -8,27 +8,42 @@ async function queryState(socket: net.Socket): Promise<Uint8Array> {
   const queryFrame = SpnetCodec.buildQueryFrame();
   return new Promise((resolve, reject) => {
     let buffer = Buffer.alloc(0);
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timeout waiting for queryState response from hardware'));
+    }, 4000);
 
     const onData = (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
       if (buffer.length >= 13) {
         const payloadLen = (buffer[11]! << 8) | buffer[12]!;
         if (buffer.length >= 13 + payloadLen) {
-          socket.removeListener('data', onData);
-          socket.removeListener('error', onError);
+          cleanup();
           resolve(new Uint8Array(buffer.subarray(0, 13 + payloadLen)));
         }
       }
     };
 
     const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+
+    const onClose = () => {
+      cleanup();
+      reject(new Error('Socket closed while waiting for queryState response'));
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
       socket.removeListener('data', onData);
       socket.removeListener('error', onError);
-      reject(err);
+      socket.removeListener('close', onClose);
     };
 
     socket.on('data', onData);
     socket.on('error', onError);
+    socket.on('close', onClose);
     socket.write(queryFrame);
   });
 }
@@ -53,10 +68,10 @@ async function runTest() {
   console.log(`Initial State: Power=${initialParsed.state.power ? 'ON' : 'OFF'}, Brightness=${initialParsed.state.brightness}%, Mode=${initialParsed.state.mode}, Pixels=${initialParsed.config.pixelCount}, FW=${initialParsed.config.firmwareVersion}`);
   console.log(`Initial Raw Hex: ${Buffer.from(initialRaw).toString('hex').slice(0, 60)}...`);
 
-  // 2. Transmit exactly one Power OFF command
+  // 2. Transmit exactly one Power OFF command (Verified Opcode 0x50, 1 byte payload)
   const powerOffFrame = SpnetCodec.encodePower(false);
   const powerOffHex = Buffer.from(powerOffFrame).toString('hex');
-  console.log(`\n2. Transmitting exactly ONE Power OFF command:`);
+  console.log(`\n2. Transmitting exactly ONE Power OFF command (Opcode 0x50):`);
   console.log(`   Packet Hex: ${powerOffHex} (${powerOffFrame.length} bytes)`);
 
   await new Promise<void>((resolve, reject) => {

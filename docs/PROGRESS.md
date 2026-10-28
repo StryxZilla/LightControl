@@ -58,6 +58,8 @@
 | **EV-016** | 2026-10-27 | Dynamic ARP Discovery | Dynamic subnet probe discovers controller at `192.168.86.34:8587` in 407 ms. | `packages/adapters/src/sp530e/sp530e-wifi-adapter.ts` |
 | **EV-017** | 2026-10-27 | Command Wire Transmission | Verified packet encoding for power, brightness (20% cap), and RGB color over TCP. | `docs/SP530E_CONNECTION_DEBUG.md` |
 | **EV-018** | 2026-10-27 | Empirical Test Report | Documented four-status hardware matrix and verification results. | `docs/HARDWARE_TEST_RESULTS.md` |
+| **EV-019** | 2026-10-28 | Live Hardware Verification | Executed Power OFF command `5350544543480050000000000100` (`0x50`), verified live telemetry transition `Power=ON -> OFF` (`data[40] == 0`). | `docs/SP530E_POWER_VERIFICATION.md` |
+| **EV-020** | 2026-10-28 | Reference Code Audit | Extracted verified SPTech opcodes from `uniled/dev_v3` (`0x50` Power, `0x51` Brightness, `0x52` Color, `0x53` Mode, `0x54` Speed). | `research/references/sptech_model.py` |
 
 ---
 

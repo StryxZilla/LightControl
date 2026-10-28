@@ -33,6 +33,33 @@ export interface SpnetParsedState {
 
 export class SpnetCodec {
   /**
+   * Supported SPTech Command numbers.
+   */
+  static readonly CMD = {
+    STATUS_QUERY: 0x02,
+    ONOFF_OPTIONS: 0x08,
+    COEXISTENCE: 0x0a,
+    ON_POWER: 0x0b,
+    POWER: 0x50,
+    BRIGHTNESS: 0x51,
+    STATIC_COLOR: 0x52,
+    LIGHT_MODE: 0x53,
+    EFFECT_MODE: 0x53,
+    EFFECT_SPEED: 0x54,
+    EFFECT_LENGTH: 0x55,
+    EFFECT_DIRECTION: 0x56,
+    EFFECT_COLOR: 0x57,
+    EFFECT_LOOP: 0x58,
+    AUDIO_INPUT: 0x59,
+    AUDIO_GAIN: 0x5a,
+    EFFECT_PLAY: 0x5d,
+    EFFECT_CCT: 0x60,
+    STATIC_CCT: 0x61,
+    LIGHT_TYPE: 0x6a,
+    CHIP_ORDER: 0x6b,
+  } as const;
+
+  /**
    * Generates the standard 13-byte state query frame.
    * Frame: SPTECH\0 + 0x02 (Query) + 0x58 (Key) + 0x00 (Total) + 0x00 (Num) + 0x0000 (Length = 0)
    */
@@ -49,13 +76,13 @@ export class SpnetCodec {
 
   /**
    * Builds an SPNET control frame with the 13-byte header + payload.
-   * Header: "SPTECH\0" + MessageType (0x03) + Key (0x58) + 0x00 0x00 + 16-bit PayloadLength.
+   * Header: "SPTECH\0" + CommandByte + Key (0x00) + 0x00 0x00 + 16-bit PayloadLength.
    */
-  static buildControlFrame(payload: Uint8Array, key = 0x58): Uint8Array {
+  static buildControlFrame(cmd: number, payload: Uint8Array, key = 0x00): Uint8Array {
     const frame = new Uint8Array(13 + payload.length);
     frame.set(SPTECH_MAGIC, 0); // 0..6
-    frame[7] = 0x03; // Message Type: Set State
-    frame[8] = key & 0xff; // Session key
+    frame[7] = cmd & 0xff; // Command Byte (e.g. 0x50 for Power, 0x51 for Brightness)
+    frame[8] = key & 0xff; // Session/Encoder key (0x00)
     frame[9] = 0x00; // Total Packets
     frame[10] = 0x00; // Packet Index
     frame[11] = (payload.length >> 8) & 0xff; // Length High
@@ -66,56 +93,57 @@ export class SpnetCodec {
 
   /**
    * Encodes a Power ON/OFF command over Wi-Fi.
-   * Payload: [0x03, 0x01, state]
+   * Opcode: 0x50. Payload: [0x01 = On, 0x00 = Off]
    */
   static encodePower(on: boolean): Uint8Array {
-    return this.buildControlFrame(new Uint8Array([0x03, 0x01, on ? 0x01 : 0x00]));
+    return this.buildControlFrame(this.CMD.POWER, new Uint8Array([on ? 0x01 : 0x00]));
   }
 
   /**
    * Encodes a Brightness level (0-255) command over Wi-Fi.
-   * Payload: [0x03, 0x02, brightness]
+   * Opcode: 0x51. Payload: [which=0x00 (color mode), level (0-255)]
    */
   static encodeBrightness(brightness: number): Uint8Array {
     const clamped = Math.max(0, Math.min(255, Math.round(brightness)));
-    return this.buildControlFrame(new Uint8Array([0x03, 0x02, clamped]));
+    return this.buildControlFrame(this.CMD.BRIGHTNESS, new Uint8Array([0x00, clamped]));
   }
 
   /**
    * Encodes an RGB Color command over Wi-Fi.
-   * Payload: [0x03, 0x04, R, G, B]
+   * Opcode: 0x52. Payload: [R, G, B, level]
    */
-  static encodeColor(r: number, g: number, b: number): Uint8Array {
+  static encodeColor(r: number, g: number, b: number, level = 255): Uint8Array {
     const red = Math.max(0, Math.min(255, Math.round(r)));
     const green = Math.max(0, Math.min(255, Math.round(g)));
     const blue = Math.max(0, Math.min(255, Math.round(b)));
-    return this.buildControlFrame(new Uint8Array([0x03, 0x04, red, green, blue]));
+    const lvl = Math.max(0, Math.min(255, Math.round(level)));
+    return this.buildControlFrame(this.CMD.STATIC_COLOR, new Uint8Array([red, green, blue, lvl]));
   }
 
   /**
    * Encodes a Dynamic Effect mode selection command over Wi-Fi.
-   * Payload: [0x03, 0x06, modeId]
+   * Opcode: 0x53. Payload: [modeId]
    */
   static encodeEffectMode(modeId: number): Uint8Array {
     const id = Math.max(1, Math.min(255, Math.round(modeId)));
-    return this.buildControlFrame(new Uint8Array([0x03, 0x06, id]));
+    return this.buildControlFrame(this.CMD.LIGHT_MODE, new Uint8Array([id]));
   }
 
   /**
    * Encodes an Effect Speed (0-255) command over Wi-Fi.
-   * Payload: [0x03, 0x07, speed]
+   * Opcode: 0x54. Payload: [speed]
    */
   static encodeEffectSpeed(speed: number): Uint8Array {
     const s = Math.max(0, Math.min(255, Math.round(speed)));
-    return this.buildControlFrame(new Uint8Array([0x03, 0x07, s]));
+    return this.buildControlFrame(this.CMD.EFFECT_SPEED, new Uint8Array([s]));
   }
 
   /**
    * Encodes an Effect Direction command over Wi-Fi.
-   * Payload: [0x03, 0x08, dir] (0 = Forward / Left, 1 = Reverse / Right)
+   * Opcode: 0x56. Payload: [dir: 0 = Forward, 1 = Reverse]
    */
   static encodeEffectDirection(reverse: boolean): Uint8Array {
-    return this.buildControlFrame(new Uint8Array([0x03, 0x08, reverse ? 0x01 : 0x00]));
+    return this.buildControlFrame(this.CMD.EFFECT_DIRECTION, new Uint8Array([reverse ? 0x01 : 0x00]));
   }
 
   /**
@@ -201,18 +229,22 @@ export class SpnetCodec {
       segmentCount,
     };
 
-    // Decode Chunk 0x03 (Real-time telemetry and state)
+    // Decode Chunk 0x03 (Real-time telemetry and state verified via sptech_model.py & live hardware)
     // Absolute buffer indices:
     // buffer[40]: Power state (0 = Off, 1 = On)
-    // buffer[43]: Mode ID
-    // buffer[45..47]: R, G, B channels
-    // buffer[47]: Brightness level (0 - 255)
+    // buffer[42]: Chip order
+    // buffer[43]: Light mode (0x01 = solid color, etc.)
+    // buffer[44]: Effect ID / mode number
+    // buffer[46]: Level color / Brightness level (0 - 255)
+    // buffer[48..50]: R, G, B channels
+    // buffer[53]: Effect speed
     const power = buffer.length > 40 ? buffer[40]! > 0 : true;
-    const modeId = buffer.length > 43 ? buffer[43]! : 0;
-    const rawR = buffer.length > 45 ? buffer[45]! : 255;
-    const rawG = buffer.length > 46 ? buffer[46]! : 255;
-    const rawB = buffer.length > 47 ? buffer[47]! : 255;
-    const rawBrightness = buffer.length > 47 ? buffer[47]! : 255;
+    const modeId = buffer.length > 44 ? buffer[44]! : 0;
+    const rawBrightness = buffer.length > 46 ? buffer[46]! : 255;
+    const rawR = buffer.length > 48 ? buffer[48]! : 255;
+    const rawG = buffer.length > 49 ? buffer[49]! : 255;
+    const rawB = buffer.length > 50 ? buffer[50]! : 255;
+    const effectSpeed = buffer.length > 53 ? buffer[53]! : onoffSpeed;
 
     // Convert 0-255 brightness to 0-100%
     const brightnessPercent = Math.round((rawBrightness / 255) * 100);
@@ -225,13 +257,15 @@ export class SpnetCodec {
       deviceIp = ipMatch[0];
     }
 
+    const isSolid = (buffer.length > 43 && buffer[43] === 0x01) || modeId === 0;
+
     const state: LedState = {
       power,
       brightness: brightnessPercent,
       color: { r: rawR, g: rawG, b: rawB },
-      mode: modeId === 0 ? 'solid' : 'effect',
+      mode: isSolid ? 'solid' : 'effect',
       effectId: modeId,
-      effectSpeed: onoffSpeed,
+      effectSpeed,
       activeSegments: segmentCount,
     };
 

@@ -49,38 +49,51 @@ test('SpnetCodec decodes real hardware fixture sp530e_status_response.bin correc
 });
 
 test('SpnetCodec encodes control frames with 13-byte SPTECH header and correct payloads', () => {
-  // Power ON
+  // Power ON: SPTECH\0 + 0x50 + 0x00 + 0x0000 + 0x0001 + [0x01]
   const pwrOn = SpnetCodec.encodePower(true);
-  assert.strictEqual(pwrOn.length, 16); // 13 + 3
+  assert.strictEqual(pwrOn.length, 14); // 13 + 1
   assert.deepStrictEqual(Array.from(pwrOn.subarray(0, 7)), Array.from(SPTECH_MAGIC));
-  assert.strictEqual(pwrOn[7], 0x03); // Message Type
-  assert.strictEqual(pwrOn[8], 0x58); // Key
+  assert.strictEqual(pwrOn[7], 0x50); // Command: POWER
+  assert.strictEqual(pwrOn[8], 0x00); // Key: 0x00
   assert.strictEqual(pwrOn[11], 0x00);
-  assert.strictEqual(pwrOn[12], 0x03); // Payload len = 3
-  assert.deepStrictEqual(Array.from(pwrOn.subarray(13)), [0x03, 0x01, 0x01]);
+  assert.strictEqual(pwrOn[12], 0x01); // Payload len = 1
+  assert.deepStrictEqual(Array.from(pwrOn.subarray(13)), [0x01]);
 
-  // Power OFF
+  // Power OFF: SPTECH\0 + 0x50 + 0x00 + 0x0000 + 0x0001 + [0x00]
   const pwrOff = SpnetCodec.encodePower(false);
-  assert.deepStrictEqual(Array.from(pwrOff.subarray(13)), [0x03, 0x01, 0x00]);
+  assert.strictEqual(pwrOff.length, 14);
+  assert.strictEqual(pwrOff[7], 0x50);
+  assert.deepStrictEqual(Array.from(pwrOff.subarray(13)), [0x00]);
 
-  // Brightness (20% safety limit = 51)
+  // Brightness: SPTECH\0 + 0x51 + 0x00 + 0x0000 + 0x0002 + [0x00, 51]
   const bright = SpnetCodec.encodeBrightness(51);
-  assert.deepStrictEqual(Array.from(bright.subarray(13)), [0x03, 0x02, 51]);
+  assert.strictEqual(bright.length, 15);
+  assert.strictEqual(bright[7], 0x51); // Command: BRIGHTNESS
+  assert.strictEqual(bright[12], 0x02);
+  assert.deepStrictEqual(Array.from(bright.subarray(13)), [0x00, 51]);
 
-  // Color Red (#FF0000)
+  // Color Red (#FF0000): SPTECH\0 + 0x52 + 0x00 + 0x0000 + 0x0004 + [255, 0, 0, 255]
   const red = SpnetCodec.encodeColor(255, 0, 0);
-  assert.strictEqual(red.length, 18); // 13 + 5
-  assert.strictEqual(red[12], 0x05); // Payload len = 5
-  assert.deepStrictEqual(Array.from(red.subarray(13)), [0x03, 0x04, 255, 0, 0]);
+  assert.strictEqual(red.length, 17); // 13 + 4
+  assert.strictEqual(red[7], 0x52); // Command: STATIC_COLOR
+  assert.strictEqual(red[12], 0x04); // Payload len = 4
+  assert.deepStrictEqual(Array.from(red.subarray(13)), [255, 0, 0, 255]);
 
-  // Dynamic Effect Mode 1
+  // Dynamic Effect Mode 1: SPTECH\0 + 0x53 + 0x00 + 0x0000 + 0x0001 + [1]
   const effect = SpnetCodec.encodeEffectMode(1);
-  assert.deepStrictEqual(Array.from(effect.subarray(13)), [0x03, 0x06, 1]);
+  assert.strictEqual(effect.length, 14);
+  assert.strictEqual(effect[7], 0x53); // Command: LIGHT_MODE
+  assert.deepStrictEqual(Array.from(effect.subarray(13)), [1]);
 
-  // Effect Speed & Direction
+  // Effect Speed: SPTECH\0 + 0x54 + 0x00 + 0x0000 + 0x0001 + [128]
   const speed = SpnetCodec.encodeEffectSpeed(128);
-  assert.deepStrictEqual(Array.from(speed.subarray(13)), [0x03, 0x07, 128]);
+  assert.strictEqual(speed.length, 14);
+  assert.strictEqual(speed[7], 0x54); // Command: EFFECT_SPEED
+  assert.deepStrictEqual(Array.from(speed.subarray(13)), [128]);
 
+  // Direction: SPTECH\0 + 0x56 + 0x00 + 0x0000 + 0x0001 + [1]
   const dir = SpnetCodec.encodeEffectDirection(true);
-  assert.deepStrictEqual(Array.from(dir.subarray(13)), [0x03, 0x08, 0x01]);
+  assert.strictEqual(dir.length, 14);
+  assert.strictEqual(dir[7], 0x56); // Command: EFFECT_DIRECTION
+  assert.deepStrictEqual(Array.from(dir.subarray(13)), [0x01]);
 });

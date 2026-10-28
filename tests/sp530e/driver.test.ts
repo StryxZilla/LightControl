@@ -87,7 +87,7 @@ test('Sp530eDriver initializes in dry-run mode and executes commands safely', as
   await driver.setPower(true);
   assert.strictEqual(driver.getState().power, true);
   assert.ok(driver.lastEncodedFrame);
-  assert.strictEqual(driver.lastEncodedFrame[7], 0x03); // SPTECH control type
+  assert.strictEqual(driver.lastEncodedFrame[7], 0x50); // Verified SPTECH POWER opcode (0x50)
 
   // Brightness clamping to 20% safety limit
   await driver.setBrightness(80); // Should clamp to 20%
