@@ -97,14 +97,43 @@ namespace Sp530eBleHelper
                 string name = e.Advertisement.LocalName ?? "";
                 short rssi = e.RawSignalStrengthInDBm;
 
+                bool hasSpService = false;
+                foreach (var uuid in e.Advertisement.ServiceUuids)
+                {
+                    if (uuid == ServiceUuid)
+                    {
+                        hasSpService = true;
+                        break;
+                    }
+                }
+
                 lock (discovered)
                 {
+                    Dictionary<string, object> existing;
+                    if (discovered.TryGetValue(addr, out existing))
+                    {
+                        if (string.IsNullOrEmpty(name) && existing.ContainsKey("name") && !string.IsNullOrEmpty((string)existing["name"]))
+                        {
+                            name = (string)existing["name"];
+                        }
+                    }
+
+                    bool isSp530 = hasSpService ||
+                                   name.IndexOf("SP530E", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   name.IndexOf("SP630E", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   addr.Equals("7C4FADEB2AAA", StringComparison.OrdinalIgnoreCase);
+
+                    if (string.IsNullOrEmpty(name) && isSp530)
+                    {
+                        name = "SP530E Controller (" + addr + ")";
+                    }
+
                     discovered[addr] = new Dictionary<string, object>
                     {
                         { "address", addr },
                         { "name", name },
                         { "rssi", rssi },
-                        { "isSP530E", name.IndexOf("SP530E", StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("SP630E", StringComparison.OrdinalIgnoreCase) >= 0 }
+                        { "isSP530E", isSp530 }
                     };
                 }
                 lock (_addressTypes)
@@ -305,8 +334,22 @@ namespace Sp530eBleHelper
                 writer.WriteBytes(raw);
                 var buffer = writer.DetachBuffer();
 
-                var opWrite = _activeCharacteristic.WriteValueWithResultAsync(buffer);
+                GattWriteOption writeOption = _activeCharacteristic.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)
+                    ? GattWriteOption.WriteWithoutResponse
+                    : GattWriteOption.WriteWithResponse;
+
+                var opWrite = _activeCharacteristic.WriteValueWithResultAsync(buffer, writeOption);
                 var result = AwaitResult(opWrite, 3000);
+
+                if (result.Status != GattCommunicationStatus.Success && writeOption == GattWriteOption.WriteWithoutResponse)
+                {
+                    // Fallback to WriteWithResponse if WriteWithoutResponse returned non-success
+                    var writerFallback = new DataWriter();
+                    writerFallback.WriteBytes(raw);
+                    var bufferFallback = writerFallback.DetachBuffer();
+                    var opFallback = _activeCharacteristic.WriteValueWithResultAsync(bufferFallback, GattWriteOption.WriteWithResponse);
+                    result = AwaitResult(opFallback, 3000);
+                }
 
                 if (result.Status == GattCommunicationStatus.Success)
                 {

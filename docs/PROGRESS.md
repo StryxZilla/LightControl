@@ -352,10 +352,29 @@
   - Added discovery fallback ensuring default configured target device remains available even when offline or when single-client limits prevent secondary probing.
   - Maintained 77/77 passing unit tests across the test suite.
 
+### Phase 10: Empirical Wire Protocol Audit, ESP32 BLE Write Sink Identification & WinRT Fix (Completed)
+- **Empirical Hardware Wire Probing**:
+  - Tested 9 candidate frame variations across TCP port 8587 against live controller at `192.168.86.34:8587`.
+  - Discovered that while TCP port 8587 reliably responds to status queries (`0x02`) with 428 bytes of telemetry, MessageType `0x03` command chunks are accepted at the socket layer but not dispatched to the ESP32 physical WS2812B RMT driver on firmware `V2.0.13`.
+- **Reverse Engineering Identification of BLE Write Sink**:
+  - Traced native Flutter Dart AOT (`libapp.so`) symbol `writeBleCharacteristicValue`: BanlanX routes user control actions (power, brightness, solid color, dynamic effects) over **Bluetooth Low Energy GATT (Service `0xFFE0` / Characteristic `0xFFE1`)**.
+  - TCP port 8587 is a read/telemetry synchronization broadcast port (`Sp-Net`).
+- **Hardware MAC Correlation**:
+  - Matched physical controller's Wi-Fi MAC (`7C:4F:AD:EB:2A:A8` at `192.168.86.34`) with its BLE MAC (`7C:4F:AD:EB:2A:AA`, ESP32 base MAC + 2).
+  - Confirmed the controller is actively broadcasting and was discovered by the Windows app at `-61 dBm` under address `7C4FADEB2AAA`.
+- **WinRT BLE Helper Repair (`Sp530eBleHelper.cs`)**:
+  - Fixed `DEVICE_NOT_FOUND`: ESP32-C3 controllers advertise using `BluetoothAddressType.Random` (static private address), whereas Windows WinRT defaulted to `BluetoothAddressType.Public`.
+  - Added preferred `Random` address type tracking, fallback to `Public`, and an active over-the-air advertisement watcher catch.
+  - Added support for `GattWriteOption.WriteWithoutResponse` (with fallback to `WriteWithResponse`) matching BanlanX native BLE dispatch.
+  - Enhanced device naming: automatically names `7C4FADEB2AAA` and devices advertising `0xFFE0` as `SP530E Controller (<MAC>)`.
+  - Recompiled helper binary and updated portable executable.
+
 ---
 
 ## Status of Hardware Verification
-- **BanlanX SP530E**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE** (tested via live Wi-Fi TCP port 8587 on `192.168.86.34:8587`).
+- **BanlanX SP530E**:
+  - **Wi-Fi TCP Port 8587**: Telemetry & State Synchronization Verified (428 bytes read, firmware `V2.0.13`, 60 pixels, power/color/brightness registers).
+  - **BLE GATT `0xFFE0` / `0xFFE1`**: Authoritative write control sink identified; Random static address resolution fixed. Ready for live physical verification on `7C4FADEB2AAA`.
 - **QuinLED dig2go (WLED)**: **SIMULATOR-TESTED & VERIFIED** (all API calls, presets, segments, and WebSocket sync pass against local mock server; physical hardware validation pending device delivery).
 
 ---
