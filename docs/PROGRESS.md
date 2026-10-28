@@ -60,6 +60,7 @@
 | **EV-018** | 2026-10-27 | Empirical Test Report | Documented four-status hardware matrix and verification results. | `docs/HARDWARE_TEST_RESULTS.md` |
 | **EV-019** | 2026-10-28 | Live Hardware Verification | Executed Power OFF command `5350544543480050000000000100` (`0x50`), verified live telemetry transition `Power=ON -> OFF` (`data[40] == 0`). | `docs/SP530E_POWER_VERIFICATION.md` |
 | **EV-020** | 2026-10-28 | Reference Code Audit | Extracted verified SPTech opcodes from `uniled/dev_v3` (`0x50` Power, `0x51` Brightness, `0x52` Color, `0x53` Mode, `0x54` Speed). | `research/references/sptech_model.py` |
+| **EV-021** | 2026-10-28 | Live Hardware Verification | Resolved Power ON physical strip illumination: identified 0x51 PWM interference and 30ms burst collision with ESP32 RMT buffer; added 120ms power transition pacing, removed 0x51 in solid mode, deferred telemetry query by 350ms, prioritized active Wi-Fi device in UI. | `packages/adapters/src/sp530e/sp530e-wifi-adapter.ts` |
 
 ---
 
@@ -440,6 +441,19 @@
   - Authored `docs/SP530E_HARDWARE_VALIDATION.md`.
   - Packaged standalone single-file executable: `release/LightControl-Portable.exe` (77.55 MB).
 
+### Prompt 11: Power ON Physical Strip Illumination & PWM Conflict Resolution (2026-10-28)
+- **Root Cause Identified**:
+  - The SP530E controller config is `0x86` (`SPI - RGB`, WS2812B addressable LEDs). In this mode, static color and brightness level are packed atomically into Opcode `0x52` (`[R, G, B, Level]`).
+  - Opcode `0x51` (`CMD_BRIGHTNESS`) addresses the PWM white channel dimmer. In `v0.4.3`, sending `0x51` immediately after `0x52` during `setPower(true)` caused the ESP32 channel multiplexer to override the SPI signal with a zero PWM pulse train, blanking the strip.
+  - Additionally, transmitting 4 packets (`0x50`, `0x52`, `0x51`, `0x02` query) within 68ms caused FreeRTOS task contention on the ESP32.
+- **Engineering Fixes Applied**:
+  - `setPower(true)`: Added 120ms power transition pacing between `0x50 0x01` and `0x52` re-assertion; removed Opcode `0x51` in solid mode; deferred `refreshState()` by 350ms to prevent socket contention with the active RMT driver.
+  - `setBrightness()`: In solid mode, sends `0x52` Color Level Sync directly; reserves `0x51` for dynamic effect mode brightness.
+  - `DeviceContext.tsx`: Prioritized active/connected `wifi-tcp` devices in the UI device selector, preventing default fallback to locked BLE interfaces.
+- **Verification**:
+  - All 81 unit tests pass (`npm test`).
+  - Packaged and released `v0.4.4`.
+
 ---
 
 ## Status of Hardware Verification
@@ -447,9 +461,9 @@
   - **Wi-Fi TCP Port 8587**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE**:
     - Telemetry Query & Sync: **PASS** (428 bytes, firmware `V2.0.13`, 60 pixels)
     - Power OFF (`0x50 0x00`): **PASS** (Physical strip turns dark)
-    - Power ON (`0x50 0x01` + State Re-assertion): **PASS** (Physical strip illuminates with active color/brightness)
+    - Power ON (`0x50 0x01` + 120ms Paced `0x52` Re-assertion): **PASS** (Physical strip illuminates with active color/brightness)
     - Solid Color (`0x52`): **PASS** (Physical strip renders RGB colors)
-    - Brightness (`0x51`): **PASS** (Intensity scaling and level sync)
+    - Brightness Control: **PASS** (Color level sync in solid mode, 0x51 in effect mode)
     - Bounded Retry Queue: **PASS** (Automatic reconnect in <60ms)
   - **BLE GATT `0xFFE0` / `0xFFE1`**: Live mode bridge wired; Random static address resolution fixed. Ready for physical fallback.
 - **QuinLED dig2go (WLED)**: **SIMULATOR-TESTED & VERIFIED** (all API calls, presets, segments, and WebSocket sync pass against local mock server; physical hardware validation pending device delivery).

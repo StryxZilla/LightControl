@@ -272,7 +272,10 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       window.api.getDevices().then((devs) => {
         if (devs && devs.length > 0) {
           setDevices(devs);
-          const target = devs.find((d) => d.connectionInfo.transport === 'ble') || devs[0]!;
+          const target = devs.find((d) => d.connectionInfo.transport === 'wifi-tcp' && d.connectionInfo.connected)
+            || devs.find((d) => d.connectionInfo.transport === 'wifi-tcp')
+            || devs.find((d) => d.connectionInfo.transport === 'ble')
+            || devs[0]!;
           setSelectedDeviceId(target.id);
           window.api.getSettings().then((s) => {
             if (s?.autoConnectLastDevice !== false) {

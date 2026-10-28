@@ -83,6 +83,9 @@ test('TCP Command Queue: serializes rapid commands and performs bounded retries 
     const results = await Promise.all([p1, p2, p3]);
     assert.deepStrictEqual(results, [true, true, true]);
 
+    // Give mock loopback server a moment to drain the socket
+    await new Promise((r) => setTimeout(r, 50));
+
     // All 3 commands were successfully transmitted despite the transient socket drop
     assert.strictEqual(receivedCommands.length >= 3, true);
     // At least 2 connections occurred (initial + reconnect after drop)
@@ -164,17 +167,20 @@ test('Physical Re-illumination: setPower(true) re-asserts active color and brigh
     device.state.color = { r: 0, g: 255, b: 255 }; // Cyan
     device.state.brightness = 100;
     device.state.mode = 'solid';
+    device.enforceSafetyLimits = false;
 
     await device.setPower(true);
+    // Allow loopback server to receive the paced re-illumination packet
+    await new Promise((r) => setTimeout(r, 60));
 
     // Verify commands sent:
     // 1. Power ON: 53 50 54 45 43 48 00 50 00 00 00 00 01 01
     // 2. Restore Color: 53 50 54 45 43 48 00 52 00 00 00 00 04 00 ff ff ff
-    // 3. Restore Brightness: 53 50 54 45 43 48 00 51 00 00 00 00 02 00 ff
+    // Note: 0x51 is intentionally not sent in solid mode to avoid PWM output conflicts with SPI-RGB LEDs
     const opcodes = commandsSent.map((c) => c[7]);
     assert.ok(opcodes.includes(0x50), 'Must transmit 0x50 Power command');
     assert.ok(opcodes.includes(0x52), 'Must transmit 0x52 Static Color to re-illuminate WS2812B pixels');
-    assert.ok(opcodes.includes(0x51), 'Must transmit 0x51 Brightness level');
+    assert.ok(!opcodes.includes(0x51), 'Must not transmit 0x51 PWM Brightness level in solid mode to prevent SPI blanking');
 
     const powerCmd = commandsSent.find((c) => c[7] === 0x50)!;
     assert.strictEqual(powerCmd[13], 0x01, 'Power command payload must be 0x01 (ON)');

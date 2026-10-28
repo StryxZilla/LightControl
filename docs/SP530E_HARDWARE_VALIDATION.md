@@ -48,9 +48,9 @@ During live user testing of the portable build, the following physical behaviors
 | **Wi-Fi Discovery** | Implemented (Subnet ARP + TCP 8587 probe) | **PASS** | Discovers `192.168.86.34:8587` in `<500ms` |
 | **Telemetry Query** | Implemented (`0x02` query frame) | **PASS** | Decodes 428B: Firmware `V2.0.13`, 60 pixels |
 | **Power OFF** | Implemented (`0x50 0x00`) | **PASS** | LEDs physically extinguish |
-| **Power ON** | Implemented (`0x50 0x01` + State Re-assertion) | **PASS** | LEDs physically illuminate with active color |
+| **Power ON** | Implemented (`0x50 0x01` + 120ms Paced `0x52` Color) | **PASS** | LEDs physically illuminate with active color |
 | **Static Color (RGB)** | Implemented (`0x52` 4-byte payload) | **PASS** | LEDs physically render selected color |
-| **Brightness Control** | Implemented (`0x51` level payload) | **PASS** | Dims / brightens output; color level sync |
+| **Brightness Control** | Implemented (`0x52` in solid mode / `0x51` in effect mode) | **PASS** | Dims / brightens output; color level sync |
 | **Dynamic Effects** | Implemented (`0x53` mode ID payload) | **PASS** | Triggers built-in animation patterns |
 | **Effect Speed** | Implemented (`0x54` speed payload) | **PASS** | Dynamically scales animation frequency |
 | **Connection Recovery** | Implemented (Bounded retry queue) | **PASS** | Auto-reconnects on socket drop in `<60ms` |

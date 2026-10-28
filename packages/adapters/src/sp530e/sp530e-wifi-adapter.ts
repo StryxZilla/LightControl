@@ -504,8 +504,16 @@ export class SP530EWiFiDevice implements ILedDevice {
       // Physical strip re-illumination: The SP530E microcontroller clears its WS2812B
       // RMT output buffer on Power OFF. Simply flipping the 0x50 power register leaves
       // the LEDs visually black until pixel data is re-asserted.
+      // Pacing delay (120ms) allows the microcontroller to execute its internal power-on transition.
+      await new Promise((r) => setTimeout(r, 120));
+
       try {
-        const hardwareBrightness = Math.round(((this.state.brightness || 100) / 100) * 255);
+        const safeLimit = this.enforceSafetyLimits
+          ? (this.safetyBrightnessLimit || this.capabilities.brightnessRange.safetyLimit || 20)
+          : this.capabilities.brightnessRange.max;
+        const currentBright = Math.min(this.state.brightness && this.state.brightness > 0 ? this.state.brightness : 20, safeLimit);
+        const hardwareBrightness = Math.round((currentBright / 100) * 255);
+
         if (this.state.mode === 'effect' && this.state.effectId) {
           const effectFrame = SpnetCodec.encodeEffectMode(this.state.effectId);
           await this.writeControlPacket(`Restore Effect ${this.state.effectId}`, effectFrame);
@@ -516,19 +524,22 @@ export class SP530EWiFiDevice implements ILedDevice {
           const colorFrame = SpnetCodec.encodeColor(color.r, color.g, color.b, hardwareBrightness);
           await this.writeControlPacket(`Restore Color RGB(${color.r},${color.g},${color.b})`, colorFrame);
         }
-        const brightFrame = SpnetCodec.encodeBrightness(hardwareBrightness);
-        await this.writeControlPacket(`Restore Brightness ${this.state.brightness || 100}%`, brightFrame);
+        // NOTE: Opcode 0x51 (Brightness) is intentionally omitted in solid mode.
+        // For SPI RGB (0x86 WS2812B), brightness level is embedded directly into 0x52.
+        // Transmitting 0x51 addresses PWM white dimming and can blank SPI addressable outputs.
       } catch (err: any) {
         this.diagnostics?.log('warn', 'TRANSMIT', `Failed to restore output state on Power ON: ${err.message}`);
       }
     }
 
-    try {
-      const refreshed = await this.refreshState();
-      this.diagnostics?.log('info', 'VERIFY', `Hardware telemetry confirmed Power state: ${refreshed.power ? 'ON' : 'OFF'}`);
-    } catch (err: any) {
-      this.diagnostics?.log('debug', 'VERIFY', `Post-power verification: ${err.message}`);
-    }
+    // Defer telemetry refresh by 350ms to avoid socket contention with the LED RMT driver
+    setTimeout(() => {
+      this.refreshState().then((refreshed) => {
+        this.diagnostics?.log('info', 'VERIFY', `Hardware telemetry confirmed Power state: ${refreshed.power ? 'ON' : 'OFF'}`);
+      }).catch((err: any) => {
+        this.diagnostics?.log('debug', 'VERIFY', `Post-power verification: ${err.message}`);
+      });
+    }, 350);
 
     return true;
   }
@@ -543,15 +554,17 @@ export class SP530EWiFiDevice implements ILedDevice {
 
     // Scale 0-100% to 0-255 hardware byte
     const hardwareByte = Math.round((clamped / 100) * 255);
-    const frame = SpnetCodec.encodeBrightness(hardwareByte);
-    await this.writeControlPacket(`Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame);
-    // Verified BanlanX Gen 3 Brightness frame: 53 51 00 01 00 02 00 [level]
-    await this.bridgeBleWrite(`Brightness ${clamped}%`, new Uint8Array([0x53, 0x51, 0x00, 0x01, 0x00, 0x02, 0x00, hardwareByte]));
 
-    // In solid mode, also synchronize color frame with the new brightness level so WS2812B outputs update immediately
-    if (this.state.mode === 'solid' && this.state.color && this.state.power) {
+    if (this.state.mode === 'solid' && this.state.color) {
+      // In solid mode for WS2812B SPI (0x86), level is encoded directly into 0x52
       const colorFrame = SpnetCodec.encodeColor(this.state.color.r, this.state.color.g, this.state.color.b, hardwareByte);
-      await this.writeControlPacket(`Color Level Sync`, colorFrame);
+      await this.writeControlPacket(`Brightness ${clamped}% (Color Level Sync)`, colorFrame);
+      await this.bridgeBleWrite(`Brightness ${clamped}%`, new Uint8Array([0x53, 0x52, 0x00, 0x01, 0x00, 0x04, this.state.color.r, this.state.color.g, this.state.color.b, hardwareByte]));
+    } else {
+      // In effect mode, 0x51 adjusts dynamic effect brightness
+      const frame = SpnetCodec.encodeBrightness(hardwareByte);
+      await this.writeControlPacket(`Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame);
+      await this.bridgeBleWrite(`Brightness ${clamped}%`, new Uint8Array([0x53, 0x51, 0x00, 0x01, 0x00, 0x02, 0x00, hardwareByte]));
     }
 
     this.state.brightness = clamped;

@@ -52,12 +52,16 @@ All Wi-Fi control frames use a 13-byte header prefixed by the ASCII magic string
 * **Observed Physical Result**: The ESP32 clears the WS2812B RMT pulse train; all LEDs instantly extinguish.
 * **Telemetry Response**: Offset 40 in response transitions from `0x01` to `0x00` (`Power: OFF`).
 
-### 2.3 Power ON (`0x50 0x01` + State Re-assertion)
+### 2.3 Power ON (`0x50 0x01` + Paced Pixel Re-assertion)
 * **Purpose**: Turn on the LED output and illuminate the strip.
 * **Primary Frame**: `5350544543480050000000000101` (14 bytes)
 * **Payload**: `[0x01]`
 * **Critical Firmware Nuance**: Sending `0x50 0x01` alone updates the controller's internal state register (`buffer[40] == 0x01`), but because the ESP32 RMT frame buffer was cleared to zero upon Power OFF, the LEDs remain black until pixel data is re-asserted.
-* **Re-assertion Sequence**: `setPower(true)` must immediately transmit the active `0x52` Static Color (or `0x53` Effect Mode) and `0x51` Brightness frame to re-render pixel pulses to the strip.
+* **Pacing & Channel Isolation**:
+  * Pacing delay (120ms) is required between `0x50 0x01` and the re-assertion frame to allow the ESP32 to complete its power-on state transition.
+  * In solid mode, transmit ONLY `0x52` Static Color with the embedded brightness level.
+  * **DO NOT transmit Opcode `0x51` (Brightness) in solid mode**: In the SP530E SPI-RGB configuration (`0x86`), `0x51` directs PWM white channel dimming. Transmitting `0x51` immediately after `0x52` overrides the channel multiplexer and blanks the WS2812B pixel output.
+  * Defer background telemetry queries (`0x02`) by 350ms to prevent socket contention while the RMT driver is actively rendering.
 
 ### 2.4 Static Color (`0x52`)
 * **Purpose**: Set solid RGB color and brightness level.

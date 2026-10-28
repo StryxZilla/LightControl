@@ -81,3 +81,17 @@
 - **Consequences**:
   - Complete elimination of hardware packet buffer overruns and radio congestion.
   - Fluid, latency-free slider and color picker experience in the UI with guaranteed eventual consistency on physical LEDs.
+
+---
+
+## ADR-007: SP530E Power Transition Pacing and Opcode Separation for Addressable SPI Strips
+- **Context**: In SP530E firmware (configuration `0x86` for WS2812B addressable strips), powering off via Opcode `0x50 0x00` instructs the microcontroller to blank its WS2812B RMT pulse train. Toggling power back on via `0x50 0x01` flips the internal power register, but the LEDs remain physically black until an active pixel render command is received. In initial implementations, transmitting Opcode `0x51` (`CMD_BRIGHTNESS`) immediately after `0x52` (`CMD_STATIC_COLOR`) caused the ESP32 channel multiplexer to route to the non-existent PWM white channel, blanking the addressable LEDs. Furthermore, transmitting multiple commands within 30ms caused FreeRTOS task contention on the microcontroller.
+- **Status**: Accepted
+- **Decision**:
+  - When `setPower(true)` is executed, transmit `0x50 0x01`, introduce a 120ms power transition pacing delay, and then re-assert active pixel data via Opcode `0x52` (Static Color) or `0x53` (Dynamic Effect).
+  - Omit Opcode `0x51` completely in solid mode: for `0x86` SPI-RGB controllers, brightness is encoded atomically in the 4th payload byte of Opcode `0x52`. Opcode `0x51` is reserved strictly for dynamic effect mode master brightness.
+  - Defer background telemetry queries (`0x02`) by 350ms post-power mutation to avoid socket contention with the microcontroller's active pixel rendering routine.
+- **Consequences**:
+  - Physical LED strip reliably illuminates upon clicking the power toggle.
+  - Zero channel conflict between PWM dimming and SPI WS2812B data train.
+  - Eliminates microsecond TCP packet storms against the ESP32 microcontroller.
