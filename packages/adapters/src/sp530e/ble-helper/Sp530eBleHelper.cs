@@ -107,6 +107,16 @@ namespace Sp530eBleHelper
                     }
                 }
 
+                bool hasSpManufacturer = false;
+                foreach (var m in e.Advertisement.ManufacturerData)
+                {
+                    if (m.CompanyId == 20563 || m.CompanyId == 0x5053)
+                    {
+                        hasSpManufacturer = true;
+                        break;
+                    }
+                }
+
                 lock (discovered)
                 {
                     Dictionary<string, object> existing;
@@ -119,13 +129,14 @@ namespace Sp530eBleHelper
                     }
 
                     bool isSp530 = hasSpService ||
+                                   hasSpManufacturer ||
                                    name.IndexOf("SP530E", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                    name.IndexOf("SP630E", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                    addr.Equals("7C4FADEB2AAA", StringComparison.OrdinalIgnoreCase);
 
-                    if (string.IsNullOrEmpty(name) && isSp530)
+                    if (isSp530 && (string.IsNullOrEmpty(name) || !name.StartsWith("SP530E Controller")))
                     {
-                        name = "SP530E Controller (" + addr + ")";
+                        name = "SP530E Controller (BLE - " + addr + ")";
                     }
 
                     discovered[addr] = new Dictionary<string, object>

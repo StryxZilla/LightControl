@@ -52,12 +52,13 @@ export class AppIpcManager {
 
     // Initialize adapters
     this.mockAdapter = new MockAdapter();
-    this.wifiAdapter = new SP530EWiFiAdapter(this.settings.wifiHost, this.diagnostics);
-    this.wifiAdapter.dryRun = this.settings.dryRun;
-
     this.bleTransport = new Sp530eWindowsBleTransport({ dryRun: this.settings.dryRun });
     this.bleAdapter = new SP530EBleAdapter(undefined, this.bleTransport, this.diagnostics);
     this.bleAdapter.dryRun = this.settings.dryRun;
+
+    this.wifiAdapter = new SP530EWiFiAdapter(this.settings.wifiHost, this.diagnostics);
+    this.wifiAdapter.dryRun = this.settings.dryRun;
+    this.wifiAdapter.setBleTransport(this.bleTransport, '7C4FADEB2AAA');
 
     this.wledAdapter = new WledAdapter();
 

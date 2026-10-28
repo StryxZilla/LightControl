@@ -47,6 +47,50 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 const INITIAL_FALLBACK_DEVICES: SerializedDevice[] = [
   {
+    id: 'sp530e-ble-7c4fadeb2aaa',
+    name: 'SP530E Controller (BLE - 7C4FADEB2AAA)',
+    family: 'sp530e',
+    connectionInfo: {
+      transport: 'ble',
+      address: '7C4FADEB2AAA',
+      name: 'SP530E Controller (BLE - 7C4FADEB2AAA)',
+      state: 'disconnected',
+      connected: false,
+      signalStrength: -65,
+    },
+    capabilities: {
+      family: 'sp530e',
+      supportsPower: true,
+      supportsBrightness: true,
+      brightnessRange: { min: 0, max: 100, safetyLimit: 20 },
+      colorModes: ['rgb'],
+      supportsWhiteChannel: false,
+      supportsColorTemperature: false,
+      supportsSegments: false,
+      maxSegments: 1,
+      maxTotalPixels: 60,
+      supportsICConfiguration: false,
+      supportsBuiltInEffects: true,
+      effectsList: [
+        { id: 1, name: 'Rainbow Flow', speedSupported: true },
+        { id: 2, name: 'Color Chase', speedSupported: true },
+        { id: 3, name: 'Breathing', speedSupported: true },
+      ],
+      supportsSpeedControl: true,
+      supportsMusicReactive: true,
+      supportsTelemetry: false,
+    },
+    state: {
+      power: true,
+      brightness: 20,
+      color: { r: 255, g: 0, b: 128, hex: '#FF0080' },
+      mode: 'solid',
+      effectId: 1,
+      effectSpeed: 50,
+      activeSegments: 1,
+    },
+  },
+  {
     id: 'sp530e-wifi-192-168-86-34',
     name: 'SP530E Controller (Living Room)',
     family: 'sp530e',
@@ -228,7 +272,13 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       window.api.getDevices().then((devs) => {
         if (devs && devs.length > 0) {
           setDevices(devs);
-          if (!selectedDeviceId) setSelectedDeviceId(devs[0]!.id);
+          const target = devs.find((d) => d.connectionInfo.transport === 'ble') || devs[0]!;
+          setSelectedDeviceId(target.id);
+          window.api.getSettings().then((s) => {
+            if (s?.autoConnectLastDevice !== false) {
+              connectDevice(target.id).catch(() => {});
+            }
+          });
         }
       });
 

@@ -145,9 +145,12 @@ export class SP530EBleDevice implements ILedDevice {
       } catch (err: any) {
         this.connectionInfo.state = 'error';
         this.connectionInfo.connected = false;
-        this.diagnostics?.logConnectionResult(this.id, false, 'ble', err.message);
-        this.emitError('ERR_BLE_CONNECT', err.message);
-        throw err;
+        const msg = err.message.includes('not found') || err.message.includes('FAILED')
+          ? `${err.message} (Note: If BanlanX is open on your mobile phone, please force-close BanlanX to release the controller's single-client BLE lock).`
+          : err.message;
+        this.diagnostics?.logConnectionResult(this.id, false, 'ble', msg);
+        this.emitError('ERR_BLE_CONNECT', msg);
+        throw new Error(msg);
       }
     }
 
@@ -168,7 +171,7 @@ export class SP530EBleDevice implements ILedDevice {
     this.diagnostics?.logDisconnect(this.id, 'BLE disconnect requested');
   }
 
-  private async writeBleFrame(opcodeDesc: string, frame: Uint8Array): Promise<boolean> {
+  private async writeBleFrame(opcodeDesc: string, frame: Uint8Array, altFrame?: Uint8Array): Promise<boolean> {
     this.lastEncodedFrame = frame;
     const hex = Buffer.from(frame).toString('hex');
     this.diagnostics?.logCommandEncoded(this.id, opcodeDesc, hex);
@@ -180,6 +183,9 @@ export class SP530EBleDevice implements ILedDevice {
 
     if (this.transport) {
       await this.transport.writeBytes(frame, 3000);
+      if (altFrame) {
+        await this.transport.writeBytes(altFrame, 2000);
+      }
       this.diagnostics?.logCommandTransmitted(this.id, opcodeDesc, hex, frame.length);
       return true;
     }
@@ -189,12 +195,13 @@ export class SP530EBleDevice implements ILedDevice {
 
   async setPower(on: boolean): Promise<boolean> {
     if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
-      this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
-      throw new Error(`Device ${this.name} is not connected`);
+      await this.connect();
     }
 
     const frame = Sp530eBleCodec.encodePower(on, this.nextSequence());
-    await this.writeBleFrame(`BLE Power ${on ? 'ON' : 'OFF'}`, frame);
+    // Verified BanlanX Gen 3 Power frame: 53 50 00 01 00 01 [01/00]
+    const gen3Frame = new Uint8Array([0x53, 0x50, 0x00, 0x01, 0x00, 0x01, on ? 0x01 : 0x00]);
+    await this.writeBleFrame(`BLE Power ${on ? 'ON' : 'OFF'}`, frame, gen3Frame);
 
     const prev = { ...this.state };
     this.state.power = on;
@@ -204,8 +211,7 @@ export class SP530EBleDevice implements ILedDevice {
 
   async setBrightness(brightness: number): Promise<boolean> {
     if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
-      this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
-      throw new Error(`Device ${this.name} is not connected`);
+      await this.connect();
     }
 
     const prev = { ...this.state };
@@ -217,7 +223,9 @@ export class SP530EBleDevice implements ILedDevice {
     const hardwareByte = Math.round((clamped / 100) * 255);
 
     const frame = Sp530eBleCodec.encodeBrightness(hardwareByte, this.nextSequence());
-    await this.writeBleFrame(`BLE Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame);
+    // Verified BanlanX Gen 3 Brightness frame: 53 51 00 01 00 02 00 [level]
+    const gen3Frame = new Uint8Array([0x53, 0x51, 0x00, 0x01, 0x00, 0x02, 0x00, hardwareByte]);
+    await this.writeBleFrame(`BLE Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame, gen3Frame);
 
     this.state.brightness = clamped;
     this.emitStateChange(prev);
@@ -226,13 +234,15 @@ export class SP530EBleDevice implements ILedDevice {
 
   async setColor(color: LedColor): Promise<boolean> {
     if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
-      this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
-      throw new Error(`Device ${this.name} is not connected`);
+      await this.connect();
     }
 
     const prev = { ...this.state };
     const frame = Sp530eBleCodec.encodeColor(color.r, color.g, color.b, this.nextSequence());
-    await this.writeBleFrame(`BLE Color RGB(${color.r},${color.g},${color.b})`, frame);
+    const hardwareBrightness = Math.round((this.state.brightness / 100) * 255);
+    // Verified BanlanX Gen 3 Color frame: 53 52 00 01 00 04 [R] [G] [B] [level]
+    const gen3Frame = new Uint8Array([0x53, 0x52, 0x00, 0x01, 0x00, 0x04, color.r, color.g, color.b, hardwareBrightness]);
+    await this.writeBleFrame(`BLE Color RGB(${color.r},${color.g},${color.b})`, frame, gen3Frame);
 
     this.state.color = { ...color };
     this.state.mode = 'solid';
@@ -242,19 +252,20 @@ export class SP530EBleDevice implements ILedDevice {
 
   async setEffect(effectId: number, speed?: number): Promise<boolean> {
     if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
-      this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
-      throw new Error(`Device ${this.name} is not connected`);
+      await this.connect();
     }
 
     const prev = { ...this.state };
     if (speed !== undefined) {
       const speedFrame = Sp530eBleCodec.encodeEffectSpeed(speed, this.nextSequence());
-      await this.writeBleFrame(`BLE EffectSpeed ${speed}%`, speedFrame);
+      const gen3Speed = new Uint8Array([0x53, 0x54, 0x00, 0x01, 0x00, 0x01, Math.round(speed)]);
+      await this.writeBleFrame(`BLE EffectSpeed ${speed}%`, speedFrame, gen3Speed);
       this.state.effectSpeed = speed;
     }
 
     const frame = Sp530eBleCodec.encodeEffectMode(effectId, this.nextSequence());
-    await this.writeBleFrame(`BLE Effect ${effectId}`, frame);
+    const gen3Mode = new Uint8Array([0x53, 0x55, 0x00, 0x01, 0x00, 0x02, (effectId >> 8) & 0xff, effectId & 0xff]);
+    await this.writeBleFrame(`BLE Effect ${effectId}`, frame, gen3Mode);
 
     this.state.mode = 'effect';
     this.state.effectId = effectId;
@@ -264,8 +275,7 @@ export class SP530EBleDevice implements ILedDevice {
 
   async setMusicMode(modeId: number, sensitivity?: number): Promise<boolean> {
     if (this.connectionInfo.state !== 'connected' && !this.dryRun) {
-      this.emitError('ERR_NOT_CONNECTED', `Device ${this.name} is not connected`);
-      throw new Error(`Device ${this.name} is not connected`);
+      await this.connect();
     }
 
     const prev = { ...this.state };
@@ -361,15 +371,30 @@ export class SP530EBleAdapter implements ILedAdapter {
       for (const d of initialDevices) {
         this.devices.set(d.id, d);
       }
+    } else {
+      // Default pre-registered target controller so it is ALWAYS available in device selector
+      const defaultDev = new SP530EBleDevice('7C4FADEB2AAA', {
+        name: 'SP530E Controller (BLE - 7C4FADEB2AAA)',
+        transport: this.transport,
+        diagnostics: this.diagnostics,
+        dryRun: this.dryRun,
+      });
+      this.devices.set(defaultDev.id, defaultDev);
     }
   }
 
   setTransport(t: Sp530eWindowsBleTransport): void {
     this.transport = t;
+    for (const dev of this.devices.values()) {
+      dev.setTransport(t);
+    }
   }
 
   setDiagnostics(diag: DiagnosticsService): void {
     this.diagnostics = diag;
+    for (const dev of this.devices.values()) {
+      dev.setDiagnostics(diag);
+    }
   }
 
   setSafetyLimits(enforce: boolean, limit = 20): void {
@@ -395,7 +420,7 @@ export class SP530EBleAdapter implements ILedAdapter {
     }
 
     try {
-      const discovered = await this.transport.discover(3000);
+      const discovered = await this.transport.discover(5000);
       for (const d of discovered) {
         if (!this.discovering) break;
         let dev = this.devices.get(d.id);

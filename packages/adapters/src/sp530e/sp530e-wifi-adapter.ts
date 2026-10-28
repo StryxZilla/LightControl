@@ -56,6 +56,28 @@ export class SP530EWiFiDevice implements ILedDevice {
   private errorListeners = new Set<(event: DeviceErrorEvent) => void>();
   private queryBuffer: Buffer = Buffer.alloc(0);
   private queryResolver: ((data: Uint8Array) => void) | null = null;
+  private bleTransport?: any;
+  private bleTargetAddress: string = '7C4FADEB2AAA';
+
+  setBleTransport(transport: any, targetAddress = '7C4FADEB2AAA'): void {
+    this.bleTransport = transport;
+    this.bleTargetAddress = targetAddress;
+  }
+
+  private async bridgeBleWrite(desc: string, frame: Uint8Array): Promise<void> {
+    if (!this.bleTransport || this.dryRun) return;
+    try {
+      if (!this.bleTransport.isConnected) {
+        await this.bleTransport.connect(this.bleTargetAddress, 3000);
+      }
+      await this.bleTransport.writeBytes(frame, 2000);
+      this.diagnostics?.log('info', 'BLE-BRIDGE', `Relayed ${desc} to BLE (${this.bleTargetAddress})`, {
+        hex: Buffer.from(frame).toString('hex'),
+      });
+    } catch (err: any) {
+      this.diagnostics?.log('debug', 'BLE-BRIDGE', `BLE bridge skipped: ${err.message}`);
+    }
+  }
 
   constructor(
     host: string,
@@ -365,6 +387,8 @@ export class SP530EWiFiDevice implements ILedDevice {
     const prev = { ...this.state };
     const frame = SpnetCodec.encodePower(on);
     await this.writeControlPacket(`Power ${on ? 'ON' : 'OFF'}`, frame);
+    // Verified BanlanX Gen 3 Power frame: 53 50 00 01 00 01 [01/00]
+    await this.bridgeBleWrite(`Power ${on ? 'ON' : 'OFF'}`, new Uint8Array([0x53, 0x50, 0x00, 0x01, 0x00, 0x01, on ? 0x01 : 0x00]));
     this.state.power = on;
     this.emitStateChange(prev);
     return true;
@@ -382,6 +406,8 @@ export class SP530EWiFiDevice implements ILedDevice {
     const hardwareByte = Math.round((clamped / 100) * 255);
     const frame = SpnetCodec.encodeBrightness(hardwareByte);
     await this.writeControlPacket(`Brightness ${clamped}% (0x${hardwareByte.toString(16)})`, frame);
+    // Verified BanlanX Gen 3 Brightness frame: 53 51 00 01 00 02 00 [level]
+    await this.bridgeBleWrite(`Brightness ${clamped}%`, new Uint8Array([0x53, 0x51, 0x00, 0x01, 0x00, 0x02, 0x00, hardwareByte]));
 
     this.state.brightness = clamped;
     this.emitStateChange(prev);
@@ -391,7 +417,10 @@ export class SP530EWiFiDevice implements ILedDevice {
   async setColor(color: LedColor): Promise<boolean> {
     const prev = { ...this.state };
     const frame = SpnetCodec.encodeColor(color.r, color.g, color.b);
+    const hardwareBrightness = Math.round((this.state.brightness / 100) * 255);
     await this.writeControlPacket(`Color RGB(${color.r},${color.g},${color.b})`, frame);
+    // Verified BanlanX Gen 3 Color frame: 53 52 00 01 00 04 [R] [G] [B] [level]
+    await this.bridgeBleWrite(`Color RGB(${color.r},${color.g},${color.b})`, new Uint8Array([0x53, 0x52, 0x00, 0x01, 0x00, 0x04, color.r, color.g, color.b, hardwareBrightness]));
 
     this.state.color = { ...color };
     this.state.mode = 'solid';
@@ -403,12 +432,16 @@ export class SP530EWiFiDevice implements ILedDevice {
     const prev = { ...this.state };
     const frame = SpnetCodec.encodeEffectMode(effectId);
     await this.writeControlPacket(`EffectMode ${effectId}`, frame);
+    // Verified BanlanX Gen 3 Effect frame: 53 55 00 01 00 02 [hi] [lo]
+    await this.bridgeBleWrite(`Effect ${effectId}`, new Uint8Array([0x53, 0x55, 0x00, 0x01, 0x00, 0x02, (effectId >> 8) & 0xff, effectId & 0xff]));
 
     if (speed !== undefined) {
       const clampedSpeed = Math.max(1, Math.min(100, Math.round(speed)));
       const hardwareSpeed = Math.round((clampedSpeed / 100) * 255);
       const speedFrame = SpnetCodec.encodeEffectSpeed(hardwareSpeed);
       await this.writeControlPacket(`EffectSpeed ${clampedSpeed}%`, speedFrame);
+      // Verified BanlanX Gen 3 Speed frame: 53 54 00 01 00 01 [speed]
+      await this.bridgeBleWrite(`Speed ${clampedSpeed}%`, new Uint8Array([0x53, 0x54, 0x00, 0x01, 0x00, 0x01, hardwareSpeed]));
       this.state.effectSpeed = clampedSpeed;
     }
 
@@ -486,10 +519,20 @@ export class SP530EWiFiAdapter implements ILedAdapter {
   private discovering: boolean = false;
   private diagnostics?: DiagnosticsService;
   private defaultHost: string = '192.168.86.34';
+  private bleTransport?: any;
+  private bleTargetAddress: string = '7C4FADEB2AAA';
 
   constructor(defaultHost = '192.168.86.34', diagnostics?: DiagnosticsService) {
     this.defaultHost = defaultHost;
     this.diagnostics = diagnostics;
+  }
+
+  setBleTransport(transport: any, targetAddress = '7C4FADEB2AAA'): void {
+    this.bleTransport = transport;
+    this.bleTargetAddress = targetAddress;
+    for (const dev of this.devices.values()) {
+      dev.setBleTransport(transport, targetAddress);
+    }
   }
 
   setDiagnostics(diag: DiagnosticsService): void {
@@ -710,6 +753,9 @@ export class SP530EWiFiAdapter implements ILedAdapter {
         dryRun: this.dryRun,
         diagnostics: this.diagnostics,
       });
+      if (this.bleTransport) {
+        device.setBleTransport(this.bleTransport, this.bleTargetAddress);
+      }
       this.devices.set(host, device);
     }
     return device;

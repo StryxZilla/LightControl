@@ -7,6 +7,7 @@ export const Header: React.FC = () => {
     devices,
     selectedDevice,
     setSelectedDeviceId,
+    connectDevice,
     setPower,
     setBrightness,
     startDiscovery,
@@ -33,7 +34,11 @@ export const Header: React.FC = () => {
       <div className="flex items-center gap-3">
         <select
           value={selectedDevice.id}
-          onChange={(e) => setSelectedDeviceId(e.target.value)}
+          onChange={(e) => {
+            const nextId = e.target.value;
+            setSelectedDeviceId(nextId);
+            connectDevice(nextId).catch(() => {});
+          }}
           className="bg-[#21262d] border border-[#30363d] text-white text-xs rounded-md px-3 py-1.5 font-medium outline-none focus:border-blue-500 cursor-pointer max-w-xs"
         >
           {devices.map((d) => (

@@ -369,6 +369,29 @@
   - Enhanced device naming: automatically names `7C4FADEB2AAA` and devices advertising `0xFFE0` as `SP530E Controller (<MAC>)`.
   - Recompiled helper binary and updated portable executable.
 
+### Phase 11: BanlanX Gen 3 Protocol Opcodes, Automatic Device Pre-Registration & Wi-Fi/BLE Write Bridge (Completed)
+- **Genuine BanlanX Gen 3 Wire Framing Discovery**:
+  - Uncovered crucial protocol detail from BanlanX Gen 3 open-source reverse-engineering:
+    - Byte 0: Header `0x53` ('S')
+    - Byte 1: Opcode Command Byte:
+      - `0x50`: Power (`53 50 00 01 00 01 [01/00]`)
+      - `0x51`: Brightness (`53 51 00 01 00 02 00 [level]`)
+      - `0x52`: Static Color (`53 52 00 01 00 04 [R] [G] [B] [level]`)
+      - `0x54`: Speed (`53 54 00 01 00 01 [speed]`)
+      - `0x55`: Dynamic Mode (`53 55 00 01 00 02 [hi] [lo]`)
+    - Earlier community fixtures mistook `53 50` as an ASCII header string `"SP"`, mistakenly sending broken opcodes `53 50 00 02...` and `53 50 00 04...` which were rejected by the hardware.
+- **Controller Pre-Registration & Prominent BLE Exposure**:
+  - Pre-registered target companion controller `SP530E Controller (BLE - 7C4FADEB2AAA)` in `SP530EBleAdapter` and `DeviceContext` so it is always visible on startup in the device selector dropdown.
+  - Added Manufacturer ID Company code `20563` (`0x5053`, ASCII `'PS'`) matching in `Sp530eBleHelper.cs` and increased BLE active scan window to 5000ms.
+- **Wi-Fi-to-BLE Write Bridge**:
+  - Implemented automatic write bridging in `SP530EWiFiDevice`: when connected to Wi-Fi TCP `192.168.86.34:8587`, state mutations (Power, Brightness, Color, Effects) are transparently relayed via BLE to `7C4FADEB2AAA` with Gen 3 frames.
+- **Automatic Auto-Connect on Device Selection**:
+  - Updated `Header.tsx` and `DeviceContext.tsx` to automatically initiate connection upon switching devices.
+  - Added auto-connect recovery in `SP530EBleDevice` so write operations automatically establish BLE connection if disconnected.
+  - Added clear troubleshooting warning for single-client BLE lock when the user's mobile phone has BanlanX open.
+- **Verification & Release Packaging**:
+  - 77/77 unit tests passing. Rebuilt portable executable `LightControl-Portable.exe` and prepared release `v0.4.1`.
+
 ---
 
 ## Status of Hardware Verification
