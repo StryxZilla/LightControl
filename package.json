@@ -1,6 +1,6 @@
 {
   "name": "universal-led-controller",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "Universal Windows 10/11 Desktop LED Device Controller (SP530E & WLED)",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@led-controller/desktop",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "private": true,
   "author": "Universal LED Engineering",

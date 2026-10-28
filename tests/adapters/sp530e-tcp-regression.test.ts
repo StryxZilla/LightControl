@@ -136,3 +136,56 @@ test('TCP Stream Parser: handles split partial packets and multiple frames in a 
     server.close();
   }
 });
+
+test('Physical Re-illumination: setPower(true) re-asserts active color and brightness on wire', async () => {
+  const commandsSent: Uint8Array[] = [];
+  const fixturePath = path.resolve('protocol/fixtures/sp530e_status_response.bin');
+  const fixtureData = fs.readFileSync(fixturePath);
+
+  const server = net.createServer((socket) => {
+    socket.on('data', (chunk) => {
+      commandsSent.push(new Uint8Array(chunk));
+      // Respond to state query
+      if (chunk.length >= 8 && chunk[7] === 0x02) {
+        socket.write(fixtureData);
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as net.AddressInfo).port;
+  const device = new SP530EWiFiDevice('127.0.0.1', port, 'Power Restore Test');
+
+  try {
+    await device.connect();
+    commandsSent.length = 0; // Clear query frames
+
+    // Set initial color and power
+    device.state.color = { r: 0, g: 255, b: 255 }; // Cyan
+    device.state.brightness = 100;
+    device.state.mode = 'solid';
+
+    await device.setPower(true);
+
+    // Verify commands sent:
+    // 1. Power ON: 53 50 54 45 43 48 00 50 00 00 00 00 01 01
+    // 2. Restore Color: 53 50 54 45 43 48 00 52 00 00 00 00 04 00 ff ff ff
+    // 3. Restore Brightness: 53 50 54 45 43 48 00 51 00 00 00 00 02 00 ff
+    const opcodes = commandsSent.map((c) => c[7]);
+    assert.ok(opcodes.includes(0x50), 'Must transmit 0x50 Power command');
+    assert.ok(opcodes.includes(0x52), 'Must transmit 0x52 Static Color to re-illuminate WS2812B pixels');
+    assert.ok(opcodes.includes(0x51), 'Must transmit 0x51 Brightness level');
+
+    const powerCmd = commandsSent.find((c) => c[7] === 0x50)!;
+    assert.strictEqual(powerCmd[13], 0x01, 'Power command payload must be 0x01 (ON)');
+
+    const colorCmd = commandsSent.find((c) => c[7] === 0x52)!;
+    assert.strictEqual(colorCmd[13], 0x00, 'Color Red must match');
+    assert.strictEqual(colorCmd[14], 0xff, 'Color Green must match');
+    assert.strictEqual(colorCmd[15], 0xff, 'Color Blue must match');
+    assert.strictEqual(colorCmd[16], 0xff, 'Color Level must match full brightness');
+  } finally {
+    await device.disconnect();
+    server.close();
+  }
+});

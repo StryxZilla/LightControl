@@ -54,7 +54,7 @@ export class AppIpcManager {
     this.mockAdapter = new MockAdapter();
     this.bleTransport = new Sp530eWindowsBleTransport({ dryRun: this.settings.dryRun });
     this.bleAdapter = new SP530EBleAdapter(undefined, this.bleTransport, this.diagnostics);
-    this.bleAdapter.dryRun = this.settings.dryRun;
+    this.bleAdapter.setDryRun(this.settings.dryRun);
 
     this.wifiAdapter = new SP530EWiFiAdapter(this.settings.wifiHost, this.diagnostics);
     this.wifiAdapter.dryRun = this.settings.dryRun;
@@ -396,7 +396,7 @@ export class AppIpcManager {
       if (newSettings.dryRun !== undefined) {
         this.deviceManager.setDryRun(newSettings.dryRun);
         this.wifiAdapter.dryRun = newSettings.dryRun;
-        this.bleAdapter.dryRun = newSettings.dryRun;
+        this.bleAdapter.setDryRun(newSettings.dryRun);
         this.bleTransport.dryRun = newSettings.dryRun;
       }
       if (newSettings.wifiHost) {

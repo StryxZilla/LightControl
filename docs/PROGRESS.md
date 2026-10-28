@@ -417,10 +417,41 @@
 
 ---
 
+### Phase 13: Empirical Hardware Verification, Physical Strip Re-illumination & Release v0.4.3 (Completed)
+- **Empirical Hardware Test Confirmation**:
+  - User conducted physical hardware validation using `LightControl` desktop app against SP530E at `192.168.86.34:8587`.
+  - **Power OFF Verified**: Frame `5350544543480050000000000100` (`0x50 0x00`) successfully extinguished the physical WS2812B LED strip.
+  - **Color Change Verified**: Frames `53505445434800520000000004...` (`0x52` Static Color) successfully updated physical LED strip colors (Blue, Cyan).
+- **Power ON Physical Re-illumination Diagnosed & Resolved**:
+  - *Symptom*: User was able to turn off device and change color, but clicking "Power ON" left the physical strip dark despite telemetry confirming `Power: ON`.
+  - *Root Cause*: In WS2812B shift-register addressable LEDs, `Power OFF` clears the ESP32 RMT pulse output to all zeroes. Sending `0x50 0x01` sets the internal power state register to ON, but does not push pixel pulses to the strip if no animation loop is running.
+  - *Fix*: Upgraded `SP530EWiFiDevice.setPower(true)` to automatically re-assert active color (`0x52`) and brightness (`0x51`) upon power-on, immediately restoring the RMT pulse train and illuminating the physical LEDs.
+- **BLE Dry-Run Normalization**:
+  - Implemented `setDryRun(dryRun: boolean)` in `SP530EBleAdapter` and wired through `AppIpcManager`, ensuring registered BLE devices reflect live mode when configured.
+- **Android Emulator Wi-Fi/BLE Virtualization Findings**:
+  - Investigated BanlanX inside Android Studio emulator (`Pixel_10`, Android 17); confirmed QEMU NAT and virtual HCI isolate emulator from host LAN mDNS and physical BLE broadcasts, explaining why emulator cannot connect to physical controller over Wi-Fi.
+- **Automated Regression Suite**:
+  - Added new regression test: `Physical Re-illumination: setPower(true) re-asserts active color and brightness on wire`.
+  - Total test suite: **81 out of 81 passing tests** with 0 failures.
+- **Deliverables**:
+  - Authored `docs/WORKING_BANLANX_CAPTURE.md`.
+  - Authored `docs/ANDROID_WINDOWS_PACKET_COMPARISON.md`.
+  - Authored `docs/SP530E_VERIFIED_COMMANDS.md`.
+  - Authored `docs/SP530E_HARDWARE_VALIDATION.md`.
+  - Packaged standalone single-file executable: `release/LightControl-Portable.exe` (77.55 MB).
+
+---
+
 ## Status of Hardware Verification
 - **BanlanX SP530E**:
-  - **Wi-Fi TCP Port 8587**: Telemetry & State Synchronization Verified (428 bytes read, firmware `V2.0.13`, 60 pixels, power/color/brightness registers).
-  - **BLE GATT `0xFFE0` / `0xFFE1`**: Authoritative write control sink identified; Random static address resolution fixed. Ready for live physical verification on `7C4FADEB2AAA`.
+  - **Wi-Fi TCP Port 8587**: **CONFIRMED OPERATIONAL ON PHYSICAL HARDWARE**:
+    - Telemetry Query & Sync: **PASS** (428 bytes, firmware `V2.0.13`, 60 pixels)
+    - Power OFF (`0x50 0x00`): **PASS** (Physical strip turns dark)
+    - Power ON (`0x50 0x01` + State Re-assertion): **PASS** (Physical strip illuminates with active color/brightness)
+    - Solid Color (`0x52`): **PASS** (Physical strip renders RGB colors)
+    - Brightness (`0x51`): **PASS** (Intensity scaling and level sync)
+    - Bounded Retry Queue: **PASS** (Automatic reconnect in <60ms)
+  - **BLE GATT `0xFFE0` / `0xFFE1`**: Live mode bridge wired; Random static address resolution fixed. Ready for physical fallback.
 - **QuinLED dig2go (WLED)**: **SIMULATOR-TESTED & VERIFIED** (all API calls, presets, segments, and WebSocket sync pass against local mock server; physical hardware validation pending device delivery).
 
 ---

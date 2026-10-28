@@ -52,7 +52,7 @@ export class SP530EBleDevice implements ILedDevice {
     const cleanAddress = address.replace(/[:-]/g, '').toLowerCase();
     this.id = `sp530e-ble-${cleanAddress}`;
     this.name = options.name ?? `SP530E (${address})`;
-    this.dryRun = options.dryRun ?? true;
+    this.dryRun = options.dryRun ?? false;
     this.transport = options.transport;
     this.diagnostics = options.diagnostics;
 
@@ -357,7 +357,7 @@ export class SP530EBleAdapter implements ILedAdapter {
   public readonly serviceUuid = SP530E_BLE_SERVICE_UUID;
   public readonly characteristicUuid = SP530E_BLE_CHARACTERISTIC_UUID;
 
-  public dryRun: boolean = true;
+  public dryRun: boolean = false;
   private transport?: Sp530eWindowsBleTransport;
   private diagnostics?: DiagnosticsService;
   private devices = new Map<string, SP530EBleDevice>();
@@ -380,6 +380,13 @@ export class SP530EBleAdapter implements ILedAdapter {
         dryRun: this.dryRun,
       });
       this.devices.set(defaultDev.id, defaultDev);
+    }
+  }
+
+  setDryRun(dryRun: boolean): void {
+    this.dryRun = dryRun;
+    for (const dev of this.devices.values()) {
+      dev.dryRun = dryRun;
     }
   }
 

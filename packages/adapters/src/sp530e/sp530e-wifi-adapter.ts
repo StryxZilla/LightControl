@@ -500,6 +500,29 @@ export class SP530EWiFiDevice implements ILedDevice {
     this.state.power = on;
     this.emitStateChange(prev);
 
+    if (on) {
+      // Physical strip re-illumination: The SP530E microcontroller clears its WS2812B
+      // RMT output buffer on Power OFF. Simply flipping the 0x50 power register leaves
+      // the LEDs visually black until pixel data is re-asserted.
+      try {
+        const hardwareBrightness = Math.round(((this.state.brightness || 100) / 100) * 255);
+        if (this.state.mode === 'effect' && this.state.effectId) {
+          const effectFrame = SpnetCodec.encodeEffectMode(this.state.effectId);
+          await this.writeControlPacket(`Restore Effect ${this.state.effectId}`, effectFrame);
+        } else {
+          const color = this.state.color && (this.state.color.r > 0 || this.state.color.g > 0 || this.state.color.b > 0)
+            ? this.state.color
+            : { r: 255, g: 255, b: 255 };
+          const colorFrame = SpnetCodec.encodeColor(color.r, color.g, color.b, hardwareBrightness);
+          await this.writeControlPacket(`Restore Color RGB(${color.r},${color.g},${color.b})`, colorFrame);
+        }
+        const brightFrame = SpnetCodec.encodeBrightness(hardwareBrightness);
+        await this.writeControlPacket(`Restore Brightness ${this.state.brightness || 100}%`, brightFrame);
+      } catch (err: any) {
+        this.diagnostics?.log('warn', 'TRANSMIT', `Failed to restore output state on Power ON: ${err.message}`);
+      }
+    }
+
     try {
       const refreshed = await this.refreshState();
       this.diagnostics?.log('info', 'VERIFY', `Hardware telemetry confirmed Power state: ${refreshed.power ? 'ON' : 'OFF'}`);
@@ -525,6 +548,12 @@ export class SP530EWiFiDevice implements ILedDevice {
     // Verified BanlanX Gen 3 Brightness frame: 53 51 00 01 00 02 00 [level]
     await this.bridgeBleWrite(`Brightness ${clamped}%`, new Uint8Array([0x53, 0x51, 0x00, 0x01, 0x00, 0x02, 0x00, hardwareByte]));
 
+    // In solid mode, also synchronize color frame with the new brightness level so WS2812B outputs update immediately
+    if (this.state.mode === 'solid' && this.state.color && this.state.power) {
+      const colorFrame = SpnetCodec.encodeColor(this.state.color.r, this.state.color.g, this.state.color.b, hardwareByte);
+      await this.writeControlPacket(`Color Level Sync`, colorFrame);
+    }
+
     this.state.brightness = clamped;
     this.emitStateChange(prev);
     return true;
@@ -532,14 +561,17 @@ export class SP530EWiFiDevice implements ILedDevice {
 
   async setColor(color: LedColor): Promise<boolean> {
     const prev = { ...this.state };
-    const frame = SpnetCodec.encodeColor(color.r, color.g, color.b);
-    const hardwareBrightness = Math.round((this.state.brightness / 100) * 255);
+    const hardwareBrightness = Math.round(((this.state.brightness || 100) / 100) * 255);
+    const frame = SpnetCodec.encodeColor(color.r, color.g, color.b, hardwareBrightness);
     await this.writeControlPacket(`Color RGB(${color.r},${color.g},${color.b})`, frame);
     // Verified BanlanX Gen 3 Color frame: 53 52 00 01 00 04 [R] [G] [B] [level]
     await this.bridgeBleWrite(`Color RGB(${color.r},${color.g},${color.b})`, new Uint8Array([0x53, 0x52, 0x00, 0x01, 0x00, 0x04, color.r, color.g, color.b, hardwareBrightness]));
 
     this.state.color = { ...color };
     this.state.mode = 'solid';
+    if (!this.state.power) {
+      this.state.power = true;
+    }
     this.emitStateChange(prev);
     return true;
   }
@@ -563,18 +595,21 @@ export class SP530EWiFiDevice implements ILedDevice {
 
     this.state.mode = 'effect';
     this.state.effectId = effectId;
+    if (!this.state.power) {
+      this.state.power = true;
+    }
     this.emitStateChange(prev);
     return true;
   }
 
   async setMusicMode(modeId: number, sensitivity?: number): Promise<boolean> {
     const prev = { ...this.state };
-    const frame = SpnetCodec.buildControlFrame(new Uint8Array([0x04, 0x02, modeId & 0xff]));
+    const frame = SpnetCodec.buildControlFrame(SpnetCodec.CMD.AUDIO_INPUT, new Uint8Array([modeId & 0xff]));
     await this.writeControlPacket(`MusicMode ${modeId}`, frame);
 
     if (sensitivity !== undefined) {
       const sensByte = Math.max(0, Math.min(255, Math.round((sensitivity / 100) * 255)));
-      const sensFrame = SpnetCodec.buildControlFrame(new Uint8Array([0x04, 0x03, sensByte]));
+      const sensFrame = SpnetCodec.buildControlFrame(SpnetCodec.CMD.AUDIO_GAIN, new Uint8Array([sensByte]));
       await this.writeControlPacket(`MusicSensitivity ${sensitivity}%`, sensFrame);
     }
 
